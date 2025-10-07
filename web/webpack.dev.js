@@ -11,21 +11,22 @@ module.exports = merge(common('development'), {
     host: HOST,
     port: PORT,
     compress: true,
+    allowedHosts: 'all',
     historyApiFallback: {
       disableDotRule: true,
     },
     open: true,
     proxy: {
       '/api/v1': {
-        target: 'http://localhost:8080',
+        target: 'http://192.168.1.108:8080',
         logLevel: 'debug',
       },
       '/csrf_token': {
-        target: 'http://localhost:8080',
+        target: 'http://192.168.1.108:8080',
         logLevel: 'debug',
       },
       '/config': {
-        target: 'http://localhost:8080',
+        target: 'http://192.168.1.108:8080',
         logLevel: 'debug',
       },
       '/static': {
