@@ -86,6 +86,7 @@ BROWSER_API_CALLS_XHR_ONLY: False
 CORS_ORIGIN:
   - "https://stage.foo.redhat.com:1337"
   - "http://localhost:9000"
+  - "http://192.168.1.108:9000"
 FEATURE_UI_V2: True
 FEATURE_USER_METADATA: True
 # Local Keycloak OIDC provider (PKCE disabled initially)
