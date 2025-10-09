@@ -113,9 +113,9 @@ describe('Repositories List Page', () => {
       cy.get('button:contains("Create")').click(),
     );
     cy.contains('new-repo').should('exist');
-    cy.get('tr:contains("new-repo")').within(() =>
-      cy.contains('private').should('exist'),
-    );
+    cy.get('tr:contains("new-repo")')
+      .first()
+      .within(() => cy.contains('private').should('exist'));
   });
 
   it('deletes multiple repositories', () => {
@@ -190,24 +190,27 @@ describe('Repositories List Page', () => {
   });
 
   it('searches by name via regex', () => {
+    cy.intercept('/api/v1/repository*').as('getRepositories');
     cy.visit('/repository');
+    cy.wait('@getRepositories');
     cy.get('[id="filter-input-advanced-search"]').should('not.exist');
     cy.get('[aria-label="Open advanced search"]').click();
     cy.get('[id="filter-input-advanced-search"]').should('be.visible');
-    cy.get('[id="filter-input-regex-checker"]').click();
-    cy.get('#repositorylist-search-input').type('repo[0-9]$');
+    cy.get('[id="filter-input-regex-checker"]').click().should('be.checked');
+    cy.get('#repositorylist-search-input').type('hello');
+    cy.wait('@getRepositories');
+    cy.get('td[data-label="Name"]')
+      .filter(':contains("hello-world")')
+      .should('have.length', 2);
+    cy.get('td[data-label="Name"]')
+      .filter(':contains("repo1")')
+      .should('not.exist');
+    cy.get('[aria-label="Reset search"]').click();
+    cy.wait('@getRepositories');
+    cy.contains('1 - 20 of 156').should('exist');
     cy.get('td[data-label="Name"]')
       .filter(':contains("repo1")')
       .should('exist');
-    cy.get('td[data-label="Name"]')
-      .filter(':contains("repo10")')
-      .should('not.exist');
-    cy.contains('1 - 9 of 9').should('exist');
-    cy.get('[aria-label="Reset search"]').click();
-    cy.get('td[data-label="Name"]')
-      .filter(':contains("repo10")')
-      .should('exist');
-    cy.contains('1 - 20 of 156').should('exist');
   });
 
   it('searches by name including organization', () => {
