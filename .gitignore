@@ -118,6 +118,9 @@ web/cypress/videos
 web/cypress/screenshots
 web/cypress/downloads
 
+# Netlify
+web/.netlify
+
 # marketplace
 local-dev/stack/quay-marketplace-api.crt
 local-dev/stack/quay-marketplace-api.key
