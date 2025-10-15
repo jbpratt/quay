@@ -11,7 +11,7 @@ axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
 export async function getCsrfToken() {
   if (process.env.MOCK_API === 'true') {
-    return 'test-csrf-token';
+    return {csrf_token: 'test-csrf-token'};
   }
   const response = await axios.get('/csrf_token');
   GlobalAuthState.csrfToken = response.data.csrf_token;
