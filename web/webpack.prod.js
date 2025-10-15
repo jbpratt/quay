@@ -1,4 +1,5 @@
 const Dotenv = require('dotenv-webpack');
+const webpack = require('webpack');
 const {merge} = require('webpack-merge');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
@@ -42,6 +43,9 @@ module.exports = merge(common('production'), {
     new Dotenv({
       systemvars: true,
       silent: true,
+    }),
+    new webpack.DefinePlugin({
+      'process.env.MOCK_API': JSON.stringify(process.env.MOCK_API),
     }),
     new MiniCssExtractPlugin({
       filename: '[name].css',

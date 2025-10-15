@@ -1,55 +1,5 @@
-# Netlify configuration for Quay UI PR Previews
-# This configuration enables automatic PR preview deployments with mocked backend
-
-[build]
-  # Production build command (without mocks)
-  command = "npm run build"
-  publish = "dist"
-
-[build.environment]
-  # Node version to use
-  NODE_VERSION = "20"
-
-# Deploy Preview context (for PRs)
-[context.deploy-preview]
-  # Build with mocked API enabled for PR previews
-  command = "MOCK_API=true npm run build"
-
-[context.deploy-preview.environment]
-  MOCK_API = "true"
-
-# Branch deploy context (optional - for specific branches)
-[context.branch-deploy]
-  command = "MOCK_API=true npm run build"
-
-# SPA redirect - ensure all routes work correctly
+# SPA redirect - ensure all routes work correctly with client-side routing
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
-  # Don't redirect if the request is for an actual file
-  conditions = {Role = ["all"], Language = ["all"]}
-
-# Optional: Custom headers for security
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Frame-Options = "DENY"
-    X-Content-Type-Options = "nosniff"
-    Referrer-Policy = "strict-origin-when-cross-origin"
-
-# Optional: Cache static assets
-[[headers]]
-  for = "/assets/*"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "/*.js"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "/*.css"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"

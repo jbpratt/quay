@@ -1,6 +1,6 @@
 # Quay UI
 
-UI for Quay based on React and Patternfly framework 
+UI for Quay based on React and Patternfly framework
 
 ## Installation
 
@@ -27,7 +27,7 @@ Open [http://localhost:9000](http://localhost:9000) to view it in the browser.
 The page will reload if you make edits.\
 You will also see any lint errors in the console.
 
-By default the UI connects to the quay backend for API. If you don't have 
+By default the UI connects to the quay backend for API. If you don't have
 a backend or want to develop without a backend you can set the environment
 variable `MOCK_API=true` before running `npm start`.
 
@@ -38,7 +38,7 @@ Add the following to your `config.yaml` in Quay
 CORS_ORIGIN: "http://localhost:9000"
 ```
 
-If you are using `docker-compose` for local development, you can add this to `local-dev/stack/config.yaml` 
+If you are using `docker-compose` for local development, you can add this to `local-dev/stack/config.yaml`
 in the Quay repo.
 
 ## Testing
@@ -69,3 +69,11 @@ It correctly bundles React in production mode and optimizes the build for the be
 
 The build is minified and the filenames include the hashes.
 See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+
+## PR Previews
+
+This project uses GitHub Actions to automatically deploy PR previews to Netlify with a mocked backend. Every PR from the main repository automatically gets a live preview URL.
+
+**For maintainers:** See [../.github/NETLIFY_SETUP.md](../.github/NETLIFY_SETUP.md) for setup instructions and security details.
+
+**For contributors:** PRs from forks won't get automatic previews for security reasons. Maintainers can manually deploy if needed.
