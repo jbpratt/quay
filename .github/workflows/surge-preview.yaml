@@ -21,12 +21,14 @@ jobs:
       uses: actions/setup-node@v3
       with:
         node-version: 18
+        cache: 'npm'
+        cache-dependency-path: 'web/package-lock.json'
 
     - name: Install dependencies
       run: cd web && npm install
 
     - name: Build with mocked API
-      run: cd web && MOCK_API=true npm run build
+      run: cd web && npm run build
       env:
         MOCK_API: 'true'
 
@@ -41,7 +43,7 @@ jobs:
     - name: Deploy to Surge
       id: deploy
       run: |
-        DEPLOY_DOMAIN="quay-pr-${{ github.event.pull_request.number }}.${{ secrets.SURGE_DOMAIN_BASE }}"
+        DEPLOY_DOMAIN="quay-pr-${{ github.event.pull_request.number }}.surge.sh"
         cd web/dist
         surge . $DEPLOY_DOMAIN --token ${{ secrets.SURGE_TOKEN }}
         echo "url=https://$DEPLOY_DOMAIN" >> $GITHUB_OUTPUT
@@ -75,7 +77,7 @@ jobs:
 
           Built with \`MOCK_API=true\` from commit ${{ github.event.pull_request.head.sha }}
 
-          This preview will be updated on every push to this PR.`;
+          _This preview will be updated on every push to this PR._`;
 
           if (botComment) {
             // Update existing comment
