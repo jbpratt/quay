@@ -1,5 +1,0 @@
-# SPA redirect - ensure all routes work correctly with client-side routing
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
