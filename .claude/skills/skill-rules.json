@@ -1,0 +1,121 @@
+{
+    "version": "1.0",
+    "description": "Skill activation triggers for Claude Code. Controls when skills automatically suggest or block actions.",
+    "skills": {
+        "skill-developer": {
+            "type": "domain",
+            "enforcement": "suggest",
+            "priority": "high",
+            "description": "Meta-skill for creating and managing Claude Code skills",
+            "promptTriggers": {
+                "keywords": [
+                    "skill system",
+                    "create skill",
+                    "add skill",
+                    "skill triggers",
+                    "skill rules",
+                    "hook system",
+                    "skill development",
+                    "skill-rules.json"
+                ],
+                "intentPatterns": [
+                    "(how do|how does|explain).*?skill",
+                    "(create|add|modify|build).*?skill",
+                    "skill.*?(work|trigger|activate|system)"
+                ]
+            }
+        },
+        "patternfly-frontend-guidelines": {
+            "type": "guardrail",
+            "enforcement": "block",
+            "priority": "high",
+            "description": "React/TypeScript best practices with PatternFly and Cypress testing",
+            "promptTriggers": {
+                "keywords": [
+                    "component",
+                    "react component",
+                    "UI",
+                    "interface",
+                    "page",
+                    "modal",
+                    "dialog",
+                    "form",
+                    "PatternFly",
+                    "pf-",
+                    "cypress",
+                    "e2e test",
+                    "end to end",
+                    "Grid",
+                    "styling",
+                    "frontend",
+                    "React",
+                    "data-testid"
+                ],
+                "intentPatterns": [
+                    "(create|add|make|build|update|modify|edit).*?(component|UI|page|modal|dialog|form)",
+                    "(how to|best practice).*?(component|react|PatternFly|cypress)",
+                    "(style|design|layout).*?(component|UI)",
+                    "(test|testing|e2e).*?(component|feature|flow)"
+                ]
+            },
+            "fileTriggers": {
+                "pathPatterns": [
+                    "frontend/src/**/*.tsx",
+                    "frontend/src/**/*.ts",
+                    "client/src/**/*.tsx",
+                    "client/src/**/*.ts",
+                    "src/**/*.tsx",
+                    "web/src/**/*.tsx",
+                    "cypress/**/*.cy.ts",
+                    "cypress/**/*.cy.tsx"
+                ],
+                "pathExclusions": [
+                    "**/*.test.tsx",
+                    "**/*.test.ts",
+                    "**/*.spec.tsx",
+                    "**/*.spec.ts",
+                    "**/vite.config.ts",
+                    "**/cypress.config.ts",
+                    "**/tsconfig.json"
+                ],
+                "contentPatterns": [
+                    "from '@patternfly/react-core'",
+                    "from '@patternfly/react-table'",
+                    "from '@patternfly/react-icons'",
+                    "@patternfly",
+                    "cy\\.findByTestId",
+                    "cy\\.intercept",
+                    "describe\\(",
+                    "pf-c-",
+                    "pf-m-"
+                ]
+            },
+            "blockMessage": "⚠️ BLOCKED - PatternFly Frontend Best Practices Required\n\n📋 REQUIRED ACTION:\n1. Use Skill tool: 'patternfly-frontend-guidelines'\n2. Review PatternFly component patterns\n3. Check React/TypeScript best practices\n4. Add data-testid for Cypress testing\n5. Use proper PatternFly styling\n6. Then retry this edit\n\nReason: Enforce PatternFly patterns, Cypress testing, and React best practices\nFile: {file_path}\n\n💡 TIP: Add '// @skip-validation' comment to skip future checks",
+            "skipConditions": {
+                "sessionSkillUsed": true,
+                "fileMarkers": [
+                    "@skip-validation"
+                ],
+                "envOverride": "SKIP_PATTERNFLY_GUIDELINES"
+            }
+        }
+    },
+    "notes": {
+        "enforcement_types": {
+            "suggest": "Skill suggestion appears but doesn't block execution",
+            "block": "Requires skill to be used before proceeding (guardrail)",
+            "warn": "Shows warning but allows proceeding"
+        },
+        "priority_levels": {
+            "critical": "Highest - Always trigger when matched",
+            "high": "Important - Trigger for most matches",
+            "medium": "Moderate - Trigger for clear matches",
+            "low": "Optional - Trigger only for explicit matches"
+        },
+        "customization": {
+            "pathPatterns": "Adjust to match your project structure (blog-api, auth-service, etc.)",
+            "keywords": "Add domain-specific terms relevant to your project",
+            "intentPatterns": "Use regex for flexible user intent matching"
+        }
+    }
+}
