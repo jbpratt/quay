@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(jira:*), mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_click, mcp__playwright__browser_type, mcp__playwright__browser_fill_form, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_wait_for, mcp__playwright__browser_press_key, mcp__playwright__browser_console_messages, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, Read, Glob, Grep, TodoWrite
+allowed-tools: Bash(jira:*), Bash(.claude/scripts/download-jira-attachments.sh:*), mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_click, mcp__playwright__browser_type, mcp__playwright__browser_fill_form, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_wait_for, mcp__playwright__browser_press_key, mcp__playwright__browser_console_messages, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, Read, Glob, Grep, TodoWrite
 argument-hint: <issue-key>
 description: Systematically plan a bug or feature based on a JIRA issue
 ---
@@ -30,24 +30,48 @@ jira issue view $ARGUMENTS
 - Labels
 - Comments with additional context
 
+### Step 1.5: Download Issue Attachments (if present)
+
+Download any attachments from the issue to help with planning:
+
+```bash
+.claude/scripts/download-jira-attachments.sh $ARGUMENTS
+```
+
+This script will:
+- Check if the issue has attachments
+- Download them to `.claude/attachments/$ARGUMENTS/`
+- Display file types to help identify their purpose
+
+**Analyze attachments for planning:**
+- **Screenshots/Images**: UI bugs or visual features - view with Read tool or Playwright
+- **Architecture diagrams**: Design documentation for new features
+- **Log files**: Backend errors or debugging information
+- **Test files**: Reproduction cases or expected behavior examples
+
+If attachments are present, incorporate them into your planning and reference them in the TodoList.
+
 ### Step 2: Classify the Issue
 
-Analyze the issue to determine its category:
+Analyze the issue to determine its category (consider both description and attachments):
 
 **UI Bug indicators:**
 - Component is "ui" or "web"
 - Keywords: rendering, display, UI, interface, button, form, modal, table, layout, styling, visual
 - Describes visual or interaction problems
+- Has screenshot attachments showing the issue
 
 **UI Feature indicators:**
 - Component is "ui" or "web"
 - Issue type is Story or Task
 - Keywords: add, create, implement, new page, new component, migrate, port
 - Description mentions Angular or old UI (indicates React port)
+- Has mockup or design attachments
 
 **Backend Bug/Feature indicators:**
 - Component is api, data, auth, endpoints, workers, buildman, storage
 - Keywords: API, endpoint, database, authentication, background job, storage
+- Has log file attachments or stack traces
 
 ### Step 3: Issue-Specific Planning
 
@@ -60,6 +84,7 @@ Based on the classification, follow the appropriate sub-workflow:
    - What is the actual behavior?
    - Steps to reproduce (if provided)
    - Affected UI components or pages
+   - Review attached screenshots (if any) to visualize the issue
 
 2. **Create reproduction plan with Playwright:**
    - Navigate to http://localhost:9000
@@ -88,6 +113,7 @@ Based on the classification, follow the appropriate sub-workflow:
    - Look for references to Angular UI in description/comments
    - Search for "port", "migrate", "current UI", "new UI", or "Angular" keywords
    - If confirmed, locate the Angular component for reference
+   - Review attached mockups or design screenshots (if any)
 
 2. **Fetch PatternFly and React documentation:**
    - Use context7 to get PatternFly docs for relevant components
@@ -122,6 +148,7 @@ Based on the classification, follow the appropriate sub-workflow:
    - Example libraries: @patternfly/react-core, react-router-dom
 
 2. **Design the feature:**
+   - Review attached mockups or design documents (if any)
    - What UI components are needed?
    - What user interactions are required?
    - What API endpoints are needed (if any)?
@@ -145,6 +172,7 @@ Based on the classification, follow the appropriate sub-workflow:
 #### 3D. Backend Bug/Feature Planning
 
 1. **Understand the backend issue:**
+   - Review attached log files or stack traces (if any)
    - What API endpoints are affected?
    - What database tables/models are involved?
    - What background workers are involved?
