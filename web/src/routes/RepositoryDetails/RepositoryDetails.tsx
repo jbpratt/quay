@@ -238,8 +238,6 @@ export default function RepositoryDetails() {
                   <Tab
                     eventKey={TabIndex.Information}
                     title={<TabTitleText>Information</TabTitleText>}
-                    onPointerEnterCapture={undefined}
-                    onPointerLeaveCapture={undefined}
                   >
                     <Information
                       organization={organization}
@@ -250,8 +248,6 @@ export default function RepositoryDetails() {
                   <Tab
                     eventKey={TabIndex.Tags}
                     title={<TabTitleText>Tags</TabTitleText>}
-                    onPointerEnterCapture={undefined}
-                    onPointerLeaveCapture={undefined}
                   >
                     <TagsList
                       organization={organization}
@@ -262,8 +258,6 @@ export default function RepositoryDetails() {
                   <Tab
                     eventKey={TabIndex.TagHistory}
                     title={<TabTitleText>Tag history</TabTitleText>}
-                    onPointerEnterCapture={undefined}
-                    onPointerLeaveCapture={undefined}
                   >
                     <TagHistory
                       org={organization}
@@ -274,8 +268,6 @@ export default function RepositoryDetails() {
                   <Tab
                     eventKey={TabIndex.Logs}
                     title={<TabTitleText>Logs</TabTitleText>}
-                    onPointerEnterCapture={undefined}
-                    onPointerLeaveCapture={undefined}
                   >
                     <UsageLogs
                       organization={organization}
@@ -283,67 +275,60 @@ export default function RepositoryDetails() {
                       type="repository"
                     />
                   </Tab>
-                  <Tab
-                    eventKey={TabIndex.Mirroring}
-                    title={<TabTitleText>Mirroring</TabTitleText>}
-                    data-testid="mirroring-tab"
-                    isHidden={
-                      !config?.features?.REPO_MIRROR || !repoDetails?.can_admin
-                    }
-                    onPointerEnterCapture={undefined}
-                    onPointerLeaveCapture={undefined}
-                  >
-                    {repoDetails?.state !== 'MIRROR' ? (
-                      <div>
-                        This repository&apos;s state is{' '}
-                        <strong>{repoDetails?.state}</strong>. Use the{' '}
-                        <a
-                          href={`/repository/${repoDetails?.namespace}/${repoDetails?.name}?tab=settings`}
-                        >
-                          Settings tab
-                        </a>{' '}
-                        and change it to <strong>Mirror</strong> to manage its
-                        mirroring configuration.
-                      </div>
-                    ) : (
-                      <Mirroring
-                        namespace={organization}
-                        repoName={repository}
-                      />
+                  {config?.features?.REPO_MIRROR && repoDetails?.can_admin && (
+                    <Tab
+                      eventKey={TabIndex.Mirroring}
+                      title={<TabTitleText>Mirroring</TabTitleText>}
+                      data-testid="mirroring-tab"
+                    >
+                      {repoDetails?.state !== 'MIRROR' ? (
+                        <div>
+                          This repository&apos;s state is{' '}
+                          <strong>{repoDetails?.state}</strong>. Use the{' '}
+                          <a
+                            href={`/repository/${repoDetails?.namespace}/${repoDetails?.name}?tab=settings`}
+                          >
+                            Settings tab
+                          </a>{' '}
+                          and change it to <strong>Mirror</strong> to manage its
+                          mirroring configuration.
+                        </div>
+                      ) : (
+                        <Mirroring
+                          namespace={organization}
+                          repoName={repository}
+                        />
+                      )}
+                    </Tab>
+                  )}
+                  {config?.features.BUILD_SUPPORT === true &&
+                    repoDetails?.state === 'NORMAL' &&
+                    (repoDetails?.can_write || repoDetails?.can_admin) && (
+                      <Tab
+                        eventKey={TabIndex.Builds}
+                        title={<TabTitleText>Builds</TabTitleText>}
+                      >
+                        <Builds
+                          org={organization}
+                          repo={repository}
+                          setupTriggerUuid={setupBuildTriggerUuid}
+                          repoDetails={repoDetails}
+                        />
+                      </Tab>
                     )}
-                  </Tab>
-                  <Tab
-                    eventKey={TabIndex.Builds}
-                    title={<TabTitleText>Builds</TabTitleText>}
-                    isHidden={
-                      config?.features.BUILD_SUPPORT != true ||
-                      repoDetails?.state !== 'NORMAL' ||
-                      (!repoDetails?.can_write && !repoDetails?.can_admin)
-                    }
-                    onPointerEnterCapture={undefined}
-                    onPointerLeaveCapture={undefined}
-                  >
-                    <Builds
-                      org={organization}
-                      repo={repository}
-                      setupTriggerUuid={setupBuildTriggerUuid}
-                      repoDetails={repoDetails}
-                    />
-                  </Tab>
-                  <Tab
-                    eventKey={TabIndex.Settings}
-                    title={<TabTitleText>Settings</TabTitleText>}
-                    isHidden={!repoDetails?.can_admin}
-                    onPointerEnterCapture={undefined}
-                    onPointerLeaveCapture={undefined}
-                  >
-                    <Settings
-                      org={organization}
-                      repo={repository}
-                      setDrawerContent={setDrawerContent}
-                      repoDetails={repoDetails}
-                    />
-                  </Tab>
+                  {repoDetails?.can_admin && (
+                    <Tab
+                      eventKey={TabIndex.Settings}
+                      title={<TabTitleText>Settings</TabTitleText>}
+                    >
+                      <Settings
+                        org={organization}
+                        repo={repository}
+                        setDrawerContent={setDrawerContent}
+                        repoDetails={repoDetails}
+                      />
+                    </Tab>
+                  )}
                 </Tabs>
               </ErrorBoundary>
             </PageSection>

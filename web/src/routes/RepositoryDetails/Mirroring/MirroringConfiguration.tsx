@@ -212,8 +212,8 @@ export const MirroringConfiguration: React.FC<MirroringConfigurationProps> = ({
 
       <FormGroup label="Sync Interval" fieldId="sync_interval" isStack>
         <InputGroup
-          onPointerEnterCapture={() => setIsHovered(true)}
-          onPointerLeaveCapture={() => setIsHovered(false)}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
           className={isHovered ? 'pf-v5-u-background-color-200' : ''}
         >
           <Controller
@@ -316,8 +316,8 @@ export const MirroringConfiguration: React.FC<MirroringConfigurationProps> = ({
           }}
           render={({field: {value, onChange}}) => (
             <InputGroup
-              onPointerEnterCapture={() => setIsHovered(true)}
-              onPointerLeaveCapture={() => setIsHovered(false)}
+              onMouseEnter={() => setIsHovered(true)}
+              onMouseLeave={() => setIsHovered(false)}
               className={isHovered ? 'pf-v5-u-background-color-200' : ''}
             >
               <TextInput
