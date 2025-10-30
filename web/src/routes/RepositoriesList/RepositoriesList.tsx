@@ -1,4 +1,4 @@
-import {ReactElement, useEffect, useState} from 'react';
+import {ReactElement, useEffect, useState, useMemo, useCallback} from 'react';
 import {
   PageSection,
   PageSectionVariants,
@@ -74,32 +74,36 @@ export default function RepositoriesList(props: RepositoriesListProps) {
   const {repos, loading, error, search, setSearch, searchFilter} =
     useRepositories(currentOrg);
 
-  repos?.sort((r1, r2) => {
-    return r1.last_modified > r2.last_modified ? -1 : 1;
-  });
+  // Memoize sorted repos to avoid re-sorting on every render
+  const sortedRepos = useMemo(() => {
+    if (!repos) return [];
+    return [...repos].sort((r1, r2) => {
+      return r1.last_modified > r2.last_modified ? -1 : 1;
+    });
+  }, [repos]);
 
-  const repositoryList: RepoListTableItem[] = repos?.map((repo) => {
-    return {
+  // Memoize repository list mapping to avoid recalculation on every render
+  const repositoryList: RepoListTableItem[] = useMemo(() => {
+    return sortedRepos.map((repo) => ({
       namespace: repo.namespace,
       name: repo.name,
       is_public: repo.is_public,
       last_modified: repo.last_modified,
       size: repo.quota_report?.quota_bytes,
       configured_quota: repo.quota_report?.configured_quota,
-    } as RepoListTableItem;
-  });
+    }));
+  }, [sortedRepos]);
 
-  // Calculate total quota consumed from all repositories
-  const calculateTotalQuotaConsumed = (): number => {
+  // Memoize total quota calculation to avoid recalculation on every render
+  const totalQuotaConsumed = useMemo(() => {
     if (!repos || !Array.isArray(repos)) return 0;
     return repos.reduce((total, repo) => {
       return total + (repo.quota_report?.quota_bytes || 0);
     }, 0);
-  };
+  }, [repos]);
 
-  const totalQuotaConsumed = calculateTotalQuotaConsumed();
-
-  const formatQuotaDisplay = () => {
+  // Memoize quota display formatting to avoid recalculation on every render
+  const formatQuotaDisplay = useCallback(() => {
     const consumedHuman = bytesToHumanReadable(totalQuotaConsumed);
     const consumedDisplay =
       totalQuotaConsumed > 0
@@ -116,7 +120,7 @@ export default function RepositoriesList(props: RepositoriesListProps) {
     }
 
     return consumedDisplay;
-  };
+  }, [totalQuotaConsumed, organizationQuota?.limit_bytes]);
 
   // Use unified table hook for sorting, filtering, and pagination
   const {
@@ -173,20 +177,21 @@ export default function RepositoriesList(props: RepositoriesListProps) {
     setRepoSelected(repo, isSelecting);
   };
 
-  const toggleMakePublicClick = () => {
+  // Memoize event handlers to prevent unnecessary re-renders
+  const toggleMakePublicClick = useCallback(() => {
     setmakePublicModal(!makePublicModalOpen);
-  };
+  }, [makePublicModalOpen]);
 
-  const toggleMakePrivateClick = () => {
+  const toggleMakePrivateClick = useCallback(() => {
     setmakePrivateModal(!makePrivateModalOpen);
-  };
+  }, [makePrivateModalOpen]);
 
   const [isDeleteModalOpen, setDeleteModalOpen] = useState(false);
 
-  const handleDeleteModalToggle = () => {
+  const handleDeleteModalToggle = useCallback(() => {
     setKebabOpen(!isKebabOpen);
     setDeleteModalOpen(!isDeleteModalOpen);
-  };
+  }, [isKebabOpen, isDeleteModalOpen]);
 
   const {deleteRepositories} = useDeleteRepositories({
     onSuccess: () => {

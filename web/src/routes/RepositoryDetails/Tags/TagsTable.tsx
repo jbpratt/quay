@@ -10,7 +10,7 @@ import {
   Td,
 } from '@patternfly/react-table';
 import prettyBytes from 'pretty-bytes';
-import {useState} from 'react';
+import {useState, memo} from 'react';
 import {Tag, Manifest, Label} from 'src/resources/TagResource';
 import {useRecoilValue} from 'recoil';
 import {Link, useLocation} from 'react-router-dom';
@@ -37,72 +37,84 @@ import ManifestListSize from 'src/components/Table/ManifestListSize';
 import {useTagPullStatistics} from 'src/hooks/UseTags';
 import TagExpiration from './TagsTableExpiration';
 
-function SubRow(props: SubRowProps) {
-  return (
-    <Tr
-      key={`${props.manifest.platform.os}-${props.manifest.platform.architecture}-${props.rowIndex}`}
-      isExpanded={props.isTagExpanded(props.tag)}
-    >
-      <Td />
-      {props.manifest.platform ? (
-        <Td dataLabel="platform" noPadding={false} colSpan={2}>
-          <ExpandableRowContent>
-            <Link
-              to={getTagDetailPath(
-                location.pathname,
-                props.org,
-                props.repo,
-                props.tag.name,
-                new Map([['digest', props.manifest.digest]]),
-              )}
-            >
-              {`${props.manifest.platform.os} on ${props.manifest.platform.architecture}`}
-            </Link>
-          </ExpandableRowContent>
-        </Td>
-      ) : (
+// Memoize SubRow component to prevent unnecessary re-renders when parent updates
+const SubRow = memo(
+  function SubRow(props: SubRowProps) {
+    return (
+      <Tr
+        key={`${props.manifest.platform.os}-${props.manifest.platform.architecture}-${props.rowIndex}`}
+        isExpanded={props.isTagExpanded(props.tag)}
+      >
         <Td />
-      )}
-      <Conditional if={props.config?.features?.SECURITY_SCANNER}>
-        <Td dataLabel="security" noPadding={false} colSpan={1}>
+        {props.manifest.platform ? (
+          <Td dataLabel="platform" noPadding={false} colSpan={2}>
+            <ExpandableRowContent>
+              <Link
+                to={getTagDetailPath(
+                  location.pathname,
+                  props.org,
+                  props.repo,
+                  props.tag.name,
+                  new Map([['digest', props.manifest.digest]]),
+                )}
+              >
+                {`${props.manifest.platform.os} on ${props.manifest.platform.architecture}`}
+              </Link>
+            </ExpandableRowContent>
+          </Td>
+        ) : (
+          <Td />
+        )}
+        <Conditional if={props.config?.features?.SECURITY_SCANNER}>
+          <Td dataLabel="security" noPadding={false} colSpan={1}>
+            <ExpandableRowContent>
+              <SecurityDetails
+                org={props.org}
+                repo={props.repo}
+                digest={props.manifest.digest}
+                tag={props.tag.name}
+                variant="condensed"
+              />
+            </ExpandableRowContent>
+          </Td>
+        </Conditional>
+        <Td dataLabel="size" noPadding={false} colSpan={1}>
           <ExpandableRowContent>
-            <SecurityDetails
+            <ChildManifestSize
               org={props.org}
               repo={props.repo}
               digest={props.manifest.digest}
-              tag={props.tag.name}
-              variant="condensed"
             />
           </ExpandableRowContent>
         </Td>
-      </Conditional>
-      <Td dataLabel="size" noPadding={false} colSpan={1}>
-        <ExpandableRowContent>
-          <ChildManifestSize
-            org={props.org}
-            repo={props.repo}
-            digest={props.manifest.digest}
-          />
-        </ExpandableRowContent>
-      </Td>
-      {props.manifest.digest ? (
-        <Td dataLabel="digest" noPadding={false} colSpan={1}>
-          <ExpandableRowContent>
-            {props.manifest.digest.substring(0, 19)}
-          </ExpandableRowContent>
-        </Td>
-      ) : (
-        <Td />
-      )}
-      <Td
-        colSpan={
-          (props.config?.features?.IMAGE_PULL_STATS ? 4 : 2) +
-          (props.config?.features?.SECURITY_SCANNER ? 0 : 1)
-        }
-      />
-    </Tr>
-  );
-}
+        {props.manifest.digest ? (
+          <Td dataLabel="digest" noPadding={false} colSpan={1}>
+            <ExpandableRowContent>
+              {props.manifest.digest.substring(0, 19)}
+            </ExpandableRowContent>
+          </Td>
+        ) : (
+          <Td />
+        )}
+        <Td
+          colSpan={
+            (props.config?.features?.IMAGE_PULL_STATS ? 4 : 2) +
+            (props.config?.features?.SECURITY_SCANNER ? 0 : 1)
+          }
+        />
+      </Tr>
+    );
+  },
+  // Custom comparison function for better performance
+  (prevProps, nextProps) => {
+    // Only re-render if critical props change
+    return (
+      prevProps.manifest.digest === nextProps.manifest.digest &&
+      prevProps.isTagExpanded(prevProps.tag) ===
+        nextProps.isTagExpanded(nextProps.tag)
+    );
+  },
+);
 
 function TagsTableRow(props: RowProps) {
   const {inReadOnlyMode} = useQuayState();

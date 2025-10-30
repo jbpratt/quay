@@ -12,7 +12,7 @@ import PropTypes from 'prop-types';
 import {CubesIcon} from '@patternfly/react-icons';
 import {Table, Tbody, Td, Th, Thead, Tr} from '@patternfly/react-table';
 import {usePaginatedSortableTable} from '../../hooks/usePaginatedSortableTable';
-import {useEffect, useState} from 'react';
+import {useEffect, useState, useCallback} from 'react';
 import {useRecoilState, useRecoilValue} from 'recoil';
 import {
   searchOrgsFilterState,
@@ -145,17 +145,17 @@ export default function OrganizationsList() {
 
   const searchFilter = useRecoilValue(searchOrgsFilterState);
 
-  // Helper function to format the last updated time
-  const formatLastRan = (lastRan: number | null): string => {
+  // Memoize helper function to format the last updated time
+  const formatLastRan = useCallback((lastRan: number | null): string => {
     if (!lastRan) return 'Never';
     const date = new Date(lastRan);
     return `${date.toLocaleDateString('en-US')} ${date.toLocaleTimeString(
       'en-US',
     )}`;
-  };
+  }, []);
 
-  // Helper function to get registry size status text
-  const getRegistrySizeStatus = () => {
+  // Memoize helper function to get registry size status text
+  const getRegistrySizeStatus = useCallback(() => {
     if (!registrySize) return '';
 
     if (registrySize.running) return ', Calculating...';
@@ -168,17 +168,17 @@ export default function OrganizationsList() {
       return ', Calculation required';
     }
     return '';
-  };
+  }, [registrySize]);
 
-  // Handle calculate button click
-  const handleCalculateClick = () => {
+  // Memoize calculate button click handler
+  const handleCalculateClick = useCallback(() => {
     setCalculateModalOpen(true);
-  };
+  }, []);
 
-  // Confirm registry size calculation
-  const confirmCalculation = () => {
+  // Memoize registry size calculation confirmation handler
+  const confirmCalculation = useCallback(() => {
     queueCalculation();
-  };
+  }, [queueCalculation]);
 
   // Use unified table hook for sorting and pagination (Name column only)
   const {
