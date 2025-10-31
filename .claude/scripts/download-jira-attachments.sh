@@ -25,11 +25,15 @@ if [ "$ATTACHMENT_COUNT" -gt 0 ]; then
 
   echo "Found $ATTACHMENT_COUNT attachment(s) for $ISSUE_KEY"
 
-  # Get bearer token from jira config
-  JIRA_TOKEN=$(grep -A2 'auth_type: bearer' ~/.config/.jira/.config.yml | grep -v 'auth_type' | grep -v '^--$' | awk '{print $2}')
+  # Get bearer token from environment or jira config
+  if [ -n "$JIRA_API_TOKEN" ]; then
+    JIRA_TOKEN="$JIRA_API_TOKEN"
+  else
+    JIRA_TOKEN=$(grep -A2 'auth_type: bearer' ~/.config/.jira/.config.yml | grep -v 'auth_type' | grep -v '^--$' | awk '{print $2}')
+  fi
 
   if [ -z "$JIRA_TOKEN" ]; then
-    echo "Error: Could not find JIRA bearer token in ~/.config/.jira/.config.yml"
+    echo "Error: Could not find JIRA bearer token. Set JIRA_API_TOKEN env var or configure in ~/.config/.jira/.config.yml"
     exit 1
   fi
 
