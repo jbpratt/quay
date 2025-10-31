@@ -80,11 +80,7 @@ const SubRow = memo(
         </Conditional>
         <Td dataLabel="size" noPadding={false} colSpan={1}>
           <ExpandableRowContent>
-            <ChildManifestSize
-              org={props.org}
-              repo={props.repo}
-              digest={props.manifest.digest}
-            />
+            <ChildManifestSize manifest={props.manifest} />
           </ExpandableRowContent>
         </Td>
         {props.manifest.digest ? (
