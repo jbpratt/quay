@@ -10,8 +10,10 @@ export function useCurrentUser(enabled = true) {
     isLoading: loading,
     error,
   } = useQuery(['user'], fetchUser, {
-    staleTime: Infinity,
+    staleTime: 5 * 60 * 1000, // 5 minutes
     enabled: enabled,
+    retry: 1,
+    refetchOnMount: true,
   });
 
   // Check both possible feature flag names for superuser support
