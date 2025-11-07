@@ -19,26 +19,18 @@ jobs:
       checks: write
 
     steps:
-    - name: Download CTRF report
+    - name: Download test results
       uses: dawidd6/action-download-artifact@v8
       with:
-        name: ctrf-report
+        name: test-results
         workflow: web-ci.yaml
         run_id: ${{ github.event.workflow_run.id }}
-        path: artifacts
-
-    - name: Download PR number
-      uses: dawidd6/action-download-artifact@v8
-      with:
-        name: pr-number
-        workflow: web-ci.yaml
-        run_id: ${{ github.event.workflow_run.id }}
-        path: pr
+        path: test-results
 
     - name: Read PR number
       id: pr
       run: |
-        PR_NUMBER=$(cat pr/pr_number.txt)
+        PR_NUMBER=$(cat test-results/pr_number.txt)
         echo "number=$PR_NUMBER" >> $GITHUB_OUTPUT
 
     - name: Publish test results to PR
@@ -46,7 +38,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        report-path: 'artifacts/ctrf-report.json'
+        report-path: 'test-results/ctrf-report.json'
         issue: ${{ steps.pr.outputs.number }}
         annotate: true
         on-fail-only: true
