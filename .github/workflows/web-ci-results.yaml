@@ -25,12 +25,12 @@ jobs:
         name: test-results
         workflow: web-ci.yaml
         run_id: ${{ github.event.workflow_run.id }}
-        path: test-results
+        path: .
 
     - name: Read PR number
       id: pr
       run: |
-        PR_NUMBER=$(cat test-results/test-results/pr_number.txt)
+        PR_NUMBER=$(cat test-results/pr_number.txt)
         echo "number=$PR_NUMBER" >> $GITHUB_OUTPUT
 
     - name: Publish test results to PR
@@ -38,7 +38,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        report-path: 'test-results/ctrf-report.json'
+        report-path: test-results/ctrf-report.json
         issue: ${{ steps.pr.outputs.number }}
         title: 'Cypress E2E Test Results'
         annotate: true
