@@ -44,7 +44,7 @@ describe('Overview List Page', () => {
   it('Purchase Plans', () => {
     const options = [
       '#medium',
-      '#large',
+      '#largest',
       '#XL',
       '#XXL',
       '#XXXL',
