@@ -45,5 +45,6 @@ jobs:
         on-fail-only: true
         overwrite-comment: true
         collapse-large-reports: true
+        summary-report: true
         community-report: true
         community-report-name: failed-detailed
