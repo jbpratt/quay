@@ -40,8 +40,10 @@ jobs:
       with:
         report-path: 'test-results/ctrf-report.json'
         issue: ${{ steps.pr.outputs.number }}
+        title: 'Cypress E2E Test Results'
         annotate: true
         on-fail-only: true
         overwrite-comment: true
-        pull-request-report: true
         collapse-large-reports: true
+        community-report: true
+        community-report-name: failed-detailed

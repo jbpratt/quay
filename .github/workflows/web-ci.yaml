@@ -78,18 +78,6 @@ jobs:
       env:
         REACT_QUAY_APP_API_URL: http://localhost:8080
 
-    - uses: actions/upload-artifact@v4
-      if: failure()
-      with:
-        name: cypress-screenshots
-        path: web/cypress/screenshots
-
-    - uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: cypress-videos
-        path: web/cypress/videos
-
     - name: Save PR number
       if: always() && github.event_name == 'pull_request'
       run: |
@@ -112,14 +100,17 @@ jobs:
         docker logs quay-quay >logs/quay.log 2>&1 || true
         docker logs quay-db >logs/quay-db.log 2>&1 || true
         docker logs quay-redis >logs/redis.log 2>&1 || true
-      if: always()
+      if: failure()
 
-    - name: Upload Quay logs
+    - name: Upload debugging artifacts
       uses: actions/upload-artifact@v4
+      if: failure()
       with:
-        name: logs
-        path: logs/
-      if: always()
+        name: cypress-debug
+        path: |
+          web/cypress/screenshots
+          web/cypress/videos
+          logs/
 
   frontend-plugin:
     name:  Build Frontend Plugin
