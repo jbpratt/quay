@@ -38,7 +38,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        report-path: test-results/ctrf-report.json
+        report-path: web/cypress/reports/ctrf-report.json
         issue: ${{ steps.pr.outputs.number }}
         title: 'Cypress E2E Test Results'
         annotate: true
