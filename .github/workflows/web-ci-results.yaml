@@ -49,5 +49,7 @@ jobs:
         report-path: 'artifacts/ctrf-report.json'
         issue: ${{ steps.pr.outputs.number }}
         annotate: true
-        on-fail-only: false
-        update-comment: true
+        on-fail-only: true
+        overwrite-comment: true
+        pull-request-report: true
+        collapse-large-reports: true
