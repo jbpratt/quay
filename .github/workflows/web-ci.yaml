@@ -97,18 +97,18 @@ jobs:
         name: ctrf-report
         path: web/cypress/reports/ctrf-report.json
 
-    - name: Publish test results to PR
-      uses: ctrf-io/github-test-reporter@v1
+    - name: Save PR number
       if: always() && github.event_name == 'pull_request'
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        mkdir -p ./pr
+        echo ${{ github.event.pull_request.number }} > ./pr/pr_number.txt
+
+    - name: Upload PR number
+      uses: actions/upload-artifact@v4
+      if: always() && github.event_name == 'pull_request'
       with:
-        report-path: web/cypress/reports/ctrf-report.json
-        template-path: web/templates/pull-request-with-screenshots.hbs
-        custom-report: true
-        annotate: true
-        on-fail-only: false
-        update-comment: true
+        name: pr-number
+        path: pr/pr_number.txt
 
     - name: Create report
       run: |

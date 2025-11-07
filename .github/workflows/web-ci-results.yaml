@@ -1,0 +1,53 @@
+name: Web CI Results
+on:
+  workflow_run:
+    workflows: ["Web CI"]
+    types:
+      - completed
+
+jobs:
+  publish-results:
+    name: Publish Test Results
+    runs-on: ubuntu-22.04
+    # Only run on pull request events
+    if: github.event.workflow_run.event == 'pull_request'
+
+    permissions:
+      # Required to post comments on PRs
+      pull-requests: write
+      # Required to add annotations
+      checks: write
+
+    steps:
+    - name: Download CTRF report
+      uses: dawidd6/action-download-artifact@v8
+      with:
+        name: ctrf-report
+        workflow: web-ci.yaml
+        run_id: ${{ github.event.workflow_run.id }}
+        path: artifacts
+
+    - name: Download PR number
+      uses: dawidd6/action-download-artifact@v8
+      with:
+        name: pr-number
+        workflow: web-ci.yaml
+        run_id: ${{ github.event.workflow_run.id }}
+        path: pr
+
+    - name: Read PR number
+      id: pr
+      run: |
+        PR_NUMBER=$(cat pr/pr_number.txt)
+        echo "number=$PR_NUMBER" >> $GITHUB_OUTPUT
+
+    - name: Publish test results to PR
+      uses: ctrf-io/github-test-reporter@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        report-path: 'artifacts/ctrf-report.json'
+        issue: ${{ steps.pr.outputs.number }}
+        annotate: true
+        on-fail-only: false
+        update-comment: true
