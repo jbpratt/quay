@@ -98,6 +98,35 @@
                 ],
                 "envOverride": "SKIP_PATTERNFLY_GUIDELINES"
             }
+        },
+        "quay-commit-formatter": {
+            "type": "domain",
+            "enforcement": "suggest",
+            "priority": "high",
+            "description": "Enforces Quay commit format: type(subsystem): message (PROJQUAY-####). Combines conventional commits with Quay subsystems and smart subsystem detection.",
+            "promptTriggers": {
+                "keywords": [
+                    "commit",
+                    "git commit",
+                    "commit message",
+                    "JIRA ticket",
+                    "PROJQUAY",
+                    "conventional commit",
+                    "/commit",
+                    "subsystem",
+                    "commit format"
+                ],
+                "intentPatterns": [
+                    "(create|make|write|format).*?commit",
+                    "commit.*?(format|message|standard)",
+                    "(how to|how do I).*?commit",
+                    "PROJQUAY.*?ticket"
+                ]
+            },
+            "skipConditions": {
+                "sessionSkillUsed": true,
+                "envOverride": "SKIP_COMMIT_FORMATTER"
+            }
         }
     },
     "notes": {
