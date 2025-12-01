@@ -13,6 +13,7 @@ from data.database import (
     Repository,
     RepositoryState,
     Tag,
+    TagPullStatistics,
     User,
     db_random_func,
     db_regex_search,
@@ -493,6 +494,12 @@ def _delete_tag(tag, now_ms):
     Deletes the given tag by marking it as expired.
     """
     with db_transaction():
+        # Clear pull statistics so re-pushed tags start fresh
+        TagPullStatistics.delete().where(
+            TagPullStatistics.repository == tag.repository,
+            TagPullStatistics.tag_name == tag.name,
+        ).execute()
+
         # clean notifications for tag expiry
         delete_tag_notifications_for_tag(tag)
 
@@ -729,6 +736,12 @@ def remove_tag_from_timemachine(
         if alive_tag is None:
             return False
 
+        # Clear pull statistics for permanently deleted tag
+        TagPullStatistics.delete().where(
+            TagPullStatistics.repository == repo_id,
+            TagPullStatistics.tag_name == tag_name,
+        ).execute()
+
         # Expire the tag past the time machine window and set hidden=true to
         # prevent it from appearing in tag history
         updated = (
@@ -745,6 +758,12 @@ def remove_tag_from_timemachine(
         # Update all tags with matching name and manifest with a expiry outside the time machine
         # window
         with db_transaction():
+            # Clear pull statistics for permanently deleted tags
+            TagPullStatistics.delete().where(
+                TagPullStatistics.repository == repo_id,
+                TagPullStatistics.tag_name == tag_name,
+            ).execute()
+
             for tag in get_tags_within_timemachine_window(
                 repo_id, tag_name, manifest_id, time_machine_ms
             ):

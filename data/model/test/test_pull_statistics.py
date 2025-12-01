@@ -5,6 +5,7 @@ from peewee import IntegrityError
 
 from data import model
 from data.database import ManifestPullStatistics, TagPullStatistics
+from data.model.oci import tag as oci_tag
 from data.model.pull_statistics import (
     PullStatisticsException,
     bulk_upsert_manifest_statistics,
@@ -553,3 +554,160 @@ class TestPullStatistics:
             2024, 1, 10, 12, 0, 0
         )  # SQL CASE keeps later date atomically (max for timestamp)
         assert updated.current_manifest_digest == "sha256:new"  # But update manifest
+
+    def test_delete_tag_clears_pull_statistics(self, initialized_db):
+        """Test that deleting a tag clears its pull statistics."""
+        from data.model.oci.manifest import get_or_create_manifest
+        from image.docker.schema2.manifest import DockerSchema2ManifestBuilder
+
+        # Create a manifest
+        builder = DockerSchema2ManifestBuilder()
+        builder.set_config_digest("sha256:abcd1234", 1234)
+        builder.add_layer("sha256:layer1", 5678)
+        manifest_json = builder.build()
+
+        manifest, _ = get_or_create_manifest(self.repo.id, manifest_json, "application/json")
+
+        # Create a tag
+        tag = oci_tag.create_or_update_tag(self.repo.id, "test-tag", manifest_id=manifest.id)
+
+        # Create pull statistics for the tag
+        TagPullStatistics.create(
+            repository=self.repo,
+            tag_name="test-tag",
+            tag_pull_count=42,
+            last_tag_pull_date=datetime(2024, 1, 1, 12, 0, 0),
+            current_manifest_digest=manifest.digest,
+        )
+
+        # Verify statistics exist
+        stats = TagPullStatistics.get(
+            TagPullStatistics.repository == self.repo_id, TagPullStatistics.tag_name == "test-tag"
+        )
+        assert stats.tag_pull_count == 42
+
+        # Delete the tag
+        deleted_tag = oci_tag.delete_tag(self.repo.id, "test-tag")
+        assert deleted_tag is not None
+
+        # Verify pull statistics were deleted
+        stats_query = TagPullStatistics.select().where(
+            TagPullStatistics.repository == self.repo_id, TagPullStatistics.tag_name == "test-tag"
+        )
+        assert stats_query.count() == 0
+
+    def test_repush_tag_after_deletion_starts_fresh(self, initialized_db):
+        """Test that re-pushing a tag after deletion starts with fresh pull statistics."""
+        from data.model.oci.manifest import get_or_create_manifest
+        from image.docker.schema2.manifest import DockerSchema2ManifestBuilder
+
+        # Create first manifest
+        builder = DockerSchema2ManifestBuilder()
+        builder.set_config_digest("sha256:config1", 1234)
+        builder.add_layer("sha256:layer1", 5678)
+        manifest1_json = builder.build()
+        manifest1, _ = get_or_create_manifest(self.repo.id, manifest1_json, "application/json")
+
+        # Create tag
+        tag1 = oci_tag.create_or_update_tag(self.repo.id, "redis", manifest_id=manifest1.id)
+
+        # Simulate pulls by creating statistics
+        TagPullStatistics.create(
+            repository=self.repo,
+            tag_name="redis",
+            tag_pull_count=100,
+            last_tag_pull_date=datetime(2024, 1, 1, 12, 0, 0),
+            current_manifest_digest=manifest1.digest,
+        )
+
+        # Delete the tag
+        oci_tag.delete_tag(self.repo.id, "redis")
+
+        # Verify statistics were cleared
+        assert (
+            TagPullStatistics.select()
+            .where(TagPullStatistics.repository == self.repo_id, TagPullStatistics.tag_name == "redis")
+            .count()
+            == 0
+        )
+
+        # Re-push the same tag name (simulating user scenario from bug report)
+        builder2 = DockerSchema2ManifestBuilder()
+        builder2.set_config_digest("sha256:config2", 2345)
+        builder2.add_layer("sha256:layer2", 6789)
+        manifest2_json = builder2.build()
+        manifest2, _ = get_or_create_manifest(self.repo.id, manifest2_json, "application/json")
+
+        tag2 = oci_tag.create_or_update_tag(self.repo.id, "redis", manifest_id=manifest2.id)
+
+        # Simulate new pulls
+        tag_updates = [
+            {
+                "repository_id": self.repo_id,
+                "tag_name": "redis",
+                "manifest_digest": manifest2.digest,
+                "pull_count": 5,
+                "last_pull_timestamp": datetime(2024, 2, 1, 12, 0, 0),
+            }
+        ]
+        bulk_upsert_tag_statistics(tag_updates)
+
+        # Verify statistics start fresh (not 105, but 5)
+        stats = TagPullStatistics.get(
+            TagPullStatistics.repository == self.repo_id, TagPullStatistics.tag_name == "redis"
+        )
+        assert stats.tag_pull_count == 5  # Fresh start, not 100 + 5
+        assert stats.last_tag_pull_date == datetime(2024, 2, 1, 12, 0, 0)
+        assert stats.current_manifest_digest == manifest2.digest
+
+    def test_remove_tag_from_timemachine_clears_pull_statistics(self, initialized_db):
+        """Test that permanently deleting a tag clears its pull statistics."""
+        from data.model.oci.manifest import get_or_create_manifest
+        from image.docker.schema2.manifest import DockerSchema2ManifestBuilder
+
+        # Create a manifest
+        builder = DockerSchema2ManifestBuilder()
+        builder.set_config_digest("sha256:perm1", 1111)
+        builder.add_layer("sha256:layer_perm", 2222)
+        manifest_json = builder.build()
+        manifest, _ = get_or_create_manifest(self.repo.id, manifest_json, "application/json")
+
+        # Create tag
+        tag = oci_tag.create_or_update_tag(self.repo.id, "permanent-test", manifest_id=manifest.id)
+
+        # Create pull statistics
+        TagPullStatistics.create(
+            repository=self.repo,
+            tag_name="permanent-test",
+            tag_pull_count=75,
+            last_tag_pull_date=datetime(2024, 3, 1, 10, 0, 0),
+            current_manifest_digest=manifest.digest,
+        )
+
+        # Verify statistics exist
+        assert (
+            TagPullStatistics.select()
+            .where(
+                TagPullStatistics.repository == self.repo_id,
+                TagPullStatistics.tag_name == "permanent-test",
+            )
+            .count()
+            == 1
+        )
+
+        # Permanently delete the tag (bypass time machine)
+        result = oci_tag.remove_tag_from_timemachine(
+            self.repo.id, "permanent-test", manifest.id, include_submanifests=False, is_alive=True
+        )
+        assert result is True
+
+        # Verify pull statistics were cleared
+        assert (
+            TagPullStatistics.select()
+            .where(
+                TagPullStatistics.repository == self.repo_id,
+                TagPullStatistics.tag_name == "permanent-test",
+            )
+            .count()
+            == 0
+        )
