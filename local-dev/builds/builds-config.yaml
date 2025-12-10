@@ -1,0 +1,33 @@
+# Local Build Support Configuration
+# This enables the popen executor which runs quay-builder locally
+# using buildah with chroot isolation (no privileged mode required).
+#
+# Prerequisites:
+# 1. Build quay-builder binary: https://github.com/quay/quay-builder
+# 2. Install buildah: dnf install buildah (or apt install buildah)
+# 3. Set BUILDER_BINARY_LOCATION in executor config or environment
+
+FEATURE_BUILD_SUPPORT: true
+
+BUILD_MANAGER:
+  - ephemeral
+  - ORCHESTRATOR:
+      REDIS_HOST: quay-redis
+      REDIS_PORT: 6379
+    ORCHESTRATOR_PREFIX: buildman/local/
+    ALLOWED_WORKER_COUNT: 2
+    EXECUTORS:
+      - EXECUTOR: popen
+        NAME: local-builder
+        # Path to quay-builder binary (default: /usr/local/bin/quay-builder)
+        # BUILDER_BINARY_LOCATION: /path/to/quay-builder
+        # Container runtime: docker or podman
+        CONTAINER_RUNTIME: podman
+        # Buildah isolation mode: chroot, rootless, or oci
+        BUILDAH_ISOLATION: chroot
+        # Connect without TLS (for local development)
+        INSECURE: true
+        # Enable debug logging
+        DEBUG: true
+        # Time allowed for builder to start (seconds)
+        SETUP_TIME: 60

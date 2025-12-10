@@ -322,3 +322,33 @@ enable-oidc:
 	@echo "✓ Keycloak OIDC configuration merged"
 	@echo "  Backup: local-dev/stack/config.yaml.backup"
 	@echo "  Apply changes: docker-compose restart quay"
+
+.PHONY: enable-builds
+enable-builds:
+	@echo "Merging build support config into local-dev/stack/config.yaml..."
+	@if ! command -v yq &> /dev/null; then \
+		echo "Error: yq is not installed"; \
+		echo "Install from: https://github.com/mikefarah/yq/#install"; \
+		exit 1; \
+	fi
+	@if ! command -v buildah &> /dev/null; then \
+		echo "⚠ Warning: buildah is not installed"; \
+		echo "  Install with: dnf install buildah (or apt install buildah)"; \
+	fi
+	@if [ ! -f "$${BUILDER_BINARY_LOCATION:-/usr/local/bin/quay-builder}" ]; then \
+		echo "⚠ Warning: quay-builder binary not found at $${BUILDER_BINARY_LOCATION:-/usr/local/bin/quay-builder}"; \
+		echo "  Build from: https://github.com/quay/quay-builder"; \
+		echo "  Set BUILDER_BINARY_LOCATION env var or update builds-config.yaml"; \
+	fi
+	@cp local-dev/stack/config.yaml local-dev/stack/config.yaml.backup
+	@yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' \
+		local-dev/stack/config.yaml local-dev/builds/builds-config.yaml > local-dev/stack/config.yaml.tmp
+	@mv local-dev/stack/config.yaml.tmp local-dev/stack/config.yaml
+	@echo "✓ Build support configuration merged"
+	@echo "  Backup: local-dev/stack/config.yaml.backup"
+	@echo "  Apply changes: docker-compose restart quay"
+	@echo ""
+	@echo "Prerequisites:"
+	@echo "  1. quay-builder binary: https://github.com/quay/quay-builder"
+	@echo "  2. buildah installed: dnf install buildah"
+	@echo "  See: local-dev/builds/README.md for details"
