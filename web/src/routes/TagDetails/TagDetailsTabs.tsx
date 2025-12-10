@@ -4,6 +4,7 @@ import {useState} from 'react';
 import Details from './Details/Details';
 import SecurityReport from './SecurityReport/SecurityReport';
 import {ModelCard} from './ModelCard/ModelCard';
+import {Manifest} from './Manifest/Manifest';
 import {Tag, ManifestByDigestResponse} from 'src/resources/TagResource';
 import {TabIndex} from './Types';
 import {Packages} from './Packages/Packages';
@@ -80,6 +81,17 @@ export default function TagTabs(props: TagTabsProps) {
         isHidden={!quayConfig?.features?.UI_MODELCARD || !props.tag.modelcard}
       >
         <ModelCard modelCard={props.tag.modelcard} />
+      </Tab>
+      <Tab
+        eventKey={TabIndex.Manifest}
+        title={<TabTitleText>Manifest</TabTitleText>}
+      >
+        <Manifest
+          org={props.org}
+          repo={props.repo}
+          digest={props.digest}
+          manifestData={props.manifestData}
+        />
       </Tab>
     </Tabs>
   );

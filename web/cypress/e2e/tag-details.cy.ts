@@ -140,4 +140,18 @@ describe('Tag Details Page', () => {
       )
       .should('exist');
   });
+
+  it('switch to manifest tab', () => {
+    cy.visit('/repository/user1/hello-world/tag/latest');
+    cy.get('button').contains('Manifest').click();
+    cy.url().should(
+      'include',
+      '/repository/user1/hello-world/tag/latest?tab=manifest',
+    );
+    // Verify manifest JSON is displayed with schemaVersion
+    cy.get('#manifest-content').should('exist');
+    cy.get('#manifest-content').should('contain', 'schemaVersion');
+    // Verify copy button exists
+    cy.get('#manifest-copy-button').should('exist');
+  });
 });
