@@ -63,4 +63,6 @@ Follow these steps to create a well-formatted commit for the Quay project:
 
 **Note**: All Quay commits MUST include a JIRA ticket in PROJQUAY-#### format. Use the `/create-issue` command if you need to create a new ticket.
 
+**Important**: Always use `--no-gpg-sign` when committing. Claude cannot sign commits with a GPG key.
+
 $ARGUMENTS
