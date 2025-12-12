@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(jira:*), Bash(.claude/scripts/download-jira-attachments.sh:*), mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_click, mcp__playwright__browser_type, mcp__playwright__browser_fill_form, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_wait_for, mcp__playwright__browser_press_key, mcp__playwright__browser_console_messages, Read, Glob, Grep, TodoWrite
+allowed-tools: Bash(jira:*), Bash(.claude/scripts/download-jira-attachments.sh:*), Bash(.claude/scripts/setup-worktree.sh:*), mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_click, mcp__playwright__browser_type, mcp__playwright__browser_fill_form, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_wait_for, mcp__playwright__browser_press_key, mcp__playwright__browser_console_messages, Read, Glob, Grep, TodoWrite, AskUserQuestion
 argument-hint: <issue-key>
 description: Systematically plan a bug or feature based on a JIRA issue
 ---
@@ -32,17 +32,59 @@ jira issue view $ARGUMENTS
 - Labels
 - Comments with additional context
 
+### Step 1.5: Optional Worktree Setup
+
+**Ask user if they want to work in a separate worktree:**
+
+Use AskUserQuestion to prompt:
+```
+Would you like to create a git worktree for this issue? This allows you to work on multiple issues in parallel without branch switching.
+```
+
+Options:
+- "Yes, create worktree" - Create isolated workspace at `../quay-$ARGUMENTS/`
+- "No, work in main repo" - Continue in current repository
+
+**If user chooses "Yes":**
+
+1. Run the worktree setup script:
+   ```bash
+   .claude/scripts/setup-worktree.sh $ARGUMENTS
+   ```
+
+2. The script will:
+   - Create worktree at `../quay-$ARGUMENTS/`
+   - Set up branch `$ARGUMENTS` based on `dev`
+   - Display worktree location
+
+3. **Important**: Store the worktree path for use in subsequent steps:
+   - Set `WORKTREE_PATH=../quay-$ARGUMENTS`
+   - All file operations will use this path as the working directory
+   - Attachments will download to `$WORKTREE_PATH/.claude/attachments/$ARGUMENTS/`
+
+4. Note in your planning that you're working in a worktree
+
+**If user chooses "No":**
+- Set `WORKTREE_PATH` to empty/current directory
+- Continue with normal workflow in main repository
+
 ### Step 2: Download Attachments
 
-Download any attachments from the issue:
+Download any attachments from the issue.
 
+**If using worktree (WORKTREE_PATH is set):**
+```bash
+cd $WORKTREE_PATH && .claude/scripts/download-jira-attachments.sh $ARGUMENTS && cd -
+```
+
+**If not using worktree:**
 ```bash
 .claude/scripts/download-jira-attachments.sh $ARGUMENTS
 ```
 
 This script will:
 - Check if the issue has attachments
-- Download them to `.claude/attachments/$ARGUMENTS/`
+- Download them to `.claude/attachments/$ARGUMENTS/` (in worktree if applicable)
 - Display file types to help identify their purpose
 
 **Common attachment types:**
@@ -373,6 +415,26 @@ After research, update your TodoList with:
 - Dependencies between tasks
 
 Ensure each task has both `content` and `activeForm`.
+
+### Step 6: Worktree Context Reminder
+
+**If you created a worktree for this issue:**
+
+Include the following in your implementation notes:
+
+- **Working directory**: `$WORKTREE_PATH` (e.g., `../quay-PROJQUAY-1234/`)
+- **Branch name**: `$ARGUMENTS` (e.g., `PROJQUAY-1234`)
+- **File paths**: All code modifications are in the worktree
+- **Testing**: Run tests from the worktree directory
+- **Commits**: Create commits in the worktree's branch
+- **Pull Request**: Create PR from the worktree's branch to `dev` or `master`
+- **Cleanup**: After PR is merged, remove worktree with:
+  ```bash
+  git worktree remove $WORKTREE_PATH
+  ```
+
+**If not using a worktree:**
+- Continue with normal workflow in main repository
 
 ---
 
