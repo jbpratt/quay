@@ -77,13 +77,13 @@ jobs:
 
           const commentBody = `## Playwright Test Report
 
-${statusEmoji} **Tests ${statusText}**
+          ${statusEmoji} **Tests ${statusText}**
 
-📊 **[View Full Report](${reportUrl})**
+          📊 **[View Full Report](${reportUrl})**
 
-🔗 [View Workflow Run](${runUrl})
+          🔗 [View Workflow Run](${runUrl})
 
-_Report from commit ${{ github.event.workflow_run.head_sha }}_`;
+          _Report from commit ${{ github.event.workflow_run.head_sha }}_`;
 
           if (botComment) {
             // Update existing comment

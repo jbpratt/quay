@@ -43,9 +43,9 @@ jobs:
 
           const commentBody = `## Playwright Test Report
 
-🧹 **Report deployment has been cleaned up**
+          🧹 **Report deployment has been cleaned up**
 
-The report at \`${deployDomain}\` has been torn down since this PR was closed.`;
+          The report at \`${deployDomain}\` has been torn down since this PR was closed.`;
 
           if (botComment) {
             // Update existing comment
