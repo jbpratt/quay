@@ -1,6 +1,7 @@
 from oauth.oidc import OIDCLoginService
 from oauth.services.github import GithubOAuthService
 from oauth.services.google import GoogleOAuthService
+from oauth.services.openshift import OpenShiftOAuthService
 from oauth.services.rhsso import RHSSOOAuthService
 
 CUSTOM_LOGIN_SERVICES = {
@@ -33,6 +34,8 @@ class OAuthLoginManager(object):
                         raise Exception("Cannot use reserved config name %s" % key)
                     if prefix == "rhsso":
                         self.services.append(RHSSOOAuthService(config, key, client=client))
+                    elif prefix == "openshift":
+                        self.services.append(OpenShiftOAuthService(config, key, client=client))
                     else:
                         self.services.append(OIDCLoginService(config, key, client=client))
 
