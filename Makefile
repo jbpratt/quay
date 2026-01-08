@@ -202,7 +202,7 @@ local-dev-build-images:
 .PHONY: local-dev-up
 local-dev-up: local-dev-clean node_modules | build-image-quay
 	DOCKER_USER="$$(id -u):$$(id -g)" $(DOCKER_COMPOSE) up -d --force-recreate local-dev-frontend
-	$(DOCKER_COMPOSE) up -d redis quay-db
+	$(DOCKER_COMPOSE) up -d redis quay-db mailpit
 	$(DOCKER) exec -it quay-db bash -c 'while ! pg_isready; do echo "waiting for postgres"; sleep 2; done'
 	DOCKER_USER="$$(id -u):0" $(DOCKER_COMPOSE) stop quay  # we need to restart quay after local-dev-clean
 	DOCKER_USER="$$(id -u):0" $(DOCKER_COMPOSE) up -d quay
