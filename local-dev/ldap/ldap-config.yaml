@@ -11,3 +11,14 @@ LDAP_UID_ATTR: uid
 LDAP_URI: ldap://quay-ldap:3389
 LDAP_USER_RDN:
   - ou=users
+
+# LDAP Filter Configuration for role-based access
+# postalCode attribute is used for testing filter-based permissions
+# See base.ldif for user postalCode assignments
+LDAP_SUPERUSER_FILTER: "(postalCode=10001)"
+LDAP_GLOBAL_READONLY_SUPERUSER_FILTER: "(postalCode=20001)"
+LDAP_RESTRICTED_USER_FILTER: "(postalCode=90210)"
+
+# LDAP Caching Configuration
+# Enable caching to reduce LDAP server load for permission checks
+FEATURE_LDAP_CACHE: true

@@ -16,6 +16,7 @@ objectClass: organizationalUnit
 ou: users
 
 # Sample user: admin (superuser in Quay)
+# postalCode=10001 is used for LDAP_SUPERUSER_FILTER testing
 dn: uid=admin,ou=users,dc=example,dc=org
 objectClass: inetOrgPerson
 objectClass: posixAccount
@@ -32,8 +33,10 @@ gecos: Admin User
 loginShell: /bin/bash
 homeDirectory: /home/admin
 mail: admin@example.com
+postalCode: 10001
 
 # Sample user: user1 (superuser in Quay)
+# postalCode=10001 is used for LDAP_SUPERUSER_FILTER testing
 dn: uid=user1,ou=users,dc=example,dc=org
 objectClass: inetOrgPerson
 objectClass: posixAccount
@@ -50,8 +53,10 @@ gecos: User One
 loginShell: /bin/bash
 homeDirectory: /home/user1
 mail: user1@example.com
+postalCode: 10001
 
 # Sample user: quayadmin (superuser + readonly superuser in Quay)
+# postalCode=10001 for superuser, also matches global readonly (20001) in separate OU
 dn: uid=quayadmin,ou=users,dc=example,dc=org
 objectClass: inetOrgPerson
 objectClass: posixAccount
@@ -68,8 +73,10 @@ gecos: Quay Admin
 loginShell: /bin/bash
 homeDirectory: /home/quayadmin
 mail: quayadmin@example.com
+postalCode: 10001
 
 # Sample user: readonly (readonly superuser in Quay)
+# postalCode=20001 is used for LDAP_GLOBAL_READONLY_SUPERUSER_FILTER testing
 dn: uid=readonly,ou=users,dc=example,dc=org
 objectClass: inetOrgPerson
 objectClass: posixAccount
@@ -86,8 +93,10 @@ gecos: Read Only
 loginShell: /bin/bash
 homeDirectory: /home/readonly
 mail: readonly@example.com
+postalCode: 20001
 
 # Sample regular user: testuser
+# postalCode=90210 is used for LDAP_RESTRICTED_USER_FILTER testing
 dn: uid=testuser,ou=users,dc=example,dc=org
 objectClass: inetOrgPerson
 objectClass: posixAccount
@@ -104,3 +113,33 @@ gecos: Test User
 loginShell: /bin/bash
 homeDirectory: /home/testuser
 mail: testuser@example.com
+postalCode: 90210
+
+# Organizational unit for groups (for team sync testing)
+dn: ou=groups,dc=example,dc=org
+objectClass: organizationalUnit
+ou: groups
+
+# Group: developers (for team sync testing)
+dn: cn=developers,ou=groups,dc=example,dc=org
+objectClass: groupOfNames
+cn: developers
+description: Developer team
+member: uid=user1,ou=users,dc=example,dc=org
+member: uid=testuser,ou=users,dc=example,dc=org
+
+# Group: admins (for team sync testing)
+dn: cn=admins,ou=groups,dc=example,dc=org
+objectClass: groupOfNames
+cn: admins
+description: Admin team
+member: uid=admin,ou=users,dc=example,dc=org
+member: uid=quayadmin,ou=users,dc=example,dc=org
+
+# Group: readonly-users (for team sync testing)
+dn: cn=readonly-users,ou=groups,dc=example,dc=org
+objectClass: groupOfNames
+cn: readonly-users
+description: Read-only users
+member: uid=readonly,ou=users,dc=example,dc=org
+member: uid=quayadmin,ou=users,dc=example,dc=org
