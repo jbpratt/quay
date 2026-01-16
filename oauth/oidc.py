@@ -274,9 +274,14 @@ class OIDCLoginService(OAuthService):
             logger.exception("Could not parse OIDC discovery for url: %s", discovery_url)
             raise DiscoveryFailureException("Could not parse OIDC discovery information")
 
-    def decode_user_jwt(self, token, options={}):
+    def decode_user_jwt(self, token, options={}, audience=None):
         """
         Decodes the given JWT under the given provider and returns it.
+
+        Args:
+            token: The JWT token to decode
+            options: Optional dict of JWT decode options
+            audience: Optional audience override. If not provided, uses self.client_id()
 
         Raises an InvalidTokenError exception on an invalid token or a PublicKeyLoadException if the
         public key could not be loaded for decoding.
@@ -287,11 +292,14 @@ class OIDCLoginService(OAuthService):
         if kid is None:
             raise InvalidTokenError("Missing `kid` header")
 
+        # Use provided audience or fall back to client_id
+        expected_audience = audience if audience is not None else self.client_id()
+
         logger.debug(
             "Using key `%s`, attempting to decode token `%s` with aud `%s` and iss `%s`",
             kid,
             token,
-            self.client_id(),
+            expected_audience,
             self._issuer,
         )
 
@@ -304,7 +312,7 @@ class OIDCLoginService(OAuthService):
                 token,
                 key,
                 algorithms=ALLOWED_ALGORITHMS,
-                audience=self.client_id(),
+                audience=expected_audience,
                 issuer=self._issuer,
                 leeway=JWT_CLOCK_SKEW_SECONDS,
                 options=dict(require=["iat", "exp"], **options),
@@ -323,7 +331,7 @@ class OIDCLoginService(OAuthService):
                     token,
                     self._get_public_key(kid, force_refresh=True),
                     algorithms=ALLOWED_ALGORITHMS,
-                    audience=self.client_id(),
+                    audience=expected_audience,
                     issuer=self._issuer,
                     leeway=JWT_CLOCK_SKEW_SECONDS,
                     options=dict(require=["iat", "exp"], **options),
@@ -341,7 +349,7 @@ class OIDCLoginService(OAuthService):
                     token,
                     None,  # No key needed for non-verified decode
                     algorithms=ALLOWED_ALGORITHMS,
-                    audience=self.client_id(),
+                    audience=expected_audience,
                     issuer=self._issuer,
                     leeway=JWT_CLOCK_SKEW_SECONDS,
                     options=dict(require=["iat", "exp"], verify_signature=False, **options),

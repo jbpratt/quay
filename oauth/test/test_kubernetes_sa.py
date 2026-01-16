@@ -9,6 +9,7 @@ from test.fixtures import *  # noqa: F401,F403
 import pytest
 
 from oauth.services.kubernetes_sa import (
+    DEFAULT_EXPECTED_AUDIENCE,
     DEFAULT_SYSTEM_ORG_NAME,
     KUBERNETES_SA_SUBJECT_PATTERN,
     KubernetesServiceAccountLoginService,
@@ -293,3 +294,63 @@ class TestSubjectPattern:
     def test_invalid_pattern_no_match(self, subject):
         """Invalid SA subjects should not match the pattern."""
         assert KUBERNETES_SA_SUBJECT_PATTERN.match(subject) is None
+
+
+class TestExpectedAudience:
+    """Tests for expected audience configuration."""
+
+    def test_expected_audience_default(self):
+        """Default expected audience should be 'quay'."""
+        config = {
+            "KUBERNETES_SA_AUTH_CONFIG": {},
+            "TESTING": True,
+        }
+        service = KubernetesServiceAccountLoginService(config)
+        assert service.expected_audience == DEFAULT_EXPECTED_AUDIENCE
+        assert service.expected_audience == "quay"
+
+    def test_expected_audience_custom(self):
+        """Custom expected audience should be used when configured."""
+        config = {
+            "KUBERNETES_SA_AUTH_CONFIG": {
+                "EXPECTED_AUDIENCE": "custom-quay-audience",
+            },
+            "TESTING": True,
+        }
+        service = KubernetesServiceAccountLoginService(config)
+        assert service.expected_audience == "custom-quay-audience"
+
+    def test_expected_audience_property(self):
+        """expected_audience property should return configured value."""
+        config = {
+            "KUBERNETES_SA_AUTH_CONFIG": {
+                "EXPECTED_AUDIENCE": "my-quay-instance",
+            },
+            "TESTING": True,
+        }
+        service = KubernetesServiceAccountLoginService(config)
+        assert service.expected_audience == "my-quay-instance"
+
+
+class TestOIDCServerConfig:
+    """Tests for OIDC server configuration."""
+
+    def test_oidc_server_default(self):
+        """Default OIDC server should be kubernetes.default.svc."""
+        config = {
+            "KUBERNETES_SA_AUTH_CONFIG": {},
+            "TESTING": True,
+        }
+        service = KubernetesServiceAccountLoginService(config)
+        assert service.oidc_server == "https://kubernetes.default.svc"
+
+    def test_oidc_server_custom(self):
+        """Custom OIDC server should be used when configured."""
+        config = {
+            "KUBERNETES_SA_AUTH_CONFIG": {
+                "OIDC_SERVER": "https://my-cluster.example.com",
+            },
+            "TESTING": True,
+        }
+        service = KubernetesServiceAccountLoginService(config)
+        assert service.oidc_server == "https://my-cluster.example.com"

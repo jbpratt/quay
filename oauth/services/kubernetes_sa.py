@@ -37,6 +37,10 @@ DEFAULT_SYSTEM_ORG_NAME = "quay-system"
 # Can be overridden via KUBERNETES_SA_AUTH_CONFIG.OIDC_SERVER
 DEFAULT_KUBERNETES_OIDC_SERVER = "https://kubernetes.default.svc"
 
+# Default expected audience for Kubernetes SA tokens
+# Operators must create tokens with this audience: kubectl create token <sa> --audience=quay
+DEFAULT_EXPECTED_AUDIENCE = "quay"
+
 
 class KubernetesServiceAccountLoginService(OIDCLoginService):
     """
@@ -48,8 +52,11 @@ class KubernetesServiceAccountLoginService(OIDCLoginService):
     Unlike standard OIDC login services, this service:
     - Does not participate in OAuth authorization flows
     - Validates bearer tokens directly from Kubernetes pods
-    - Uses relaxed audience validation (K8s audiences vary)
+    - Validates audience claim against configurable value (default: "quay")
     - Maps SA subjects to robot accounts deterministically
+
+    Operators must create tokens with the expected audience:
+        kubectl create token <sa-name> --audience=quay
     """
 
     def __init__(
@@ -97,6 +104,9 @@ class KubernetesServiceAccountLoginService(OIDCLoginService):
         self._superuser_subjects: list[str] = kubernetes_config.get("SUPERUSER_SUBJECTS") or []
         self._verify_tls: bool = kubernetes_config.get("VERIFY_TLS", True)
         self._ca_bundle: str = kubernetes_config.get("CA_BUNDLE", SERVICE_ACCOUNT_CA_PATH)
+        self._expected_audience: str = kubernetes_config.get(
+            "EXPECTED_AUDIENCE", DEFAULT_EXPECTED_AUDIENCE
+        )
 
     def service_id(self) -> str:
         return "kubernetes_sa"
@@ -118,6 +128,11 @@ class KubernetesServiceAccountLoginService(OIDCLoginService):
     def superuser_subjects(self) -> list[str]:
         """List of SA subjects configured as superusers."""
         return self._superuser_subjects
+
+    @property
+    def expected_audience(self) -> str:
+        """Expected audience claim for K8s SA tokens. Defaults to 'quay'."""
+        return self._expected_audience
 
     def is_superuser_subject(self, subject: str) -> bool:
         """Check if the given SA subject is configured as a superuser."""
@@ -242,8 +257,11 @@ class KubernetesServiceAccountLoginService(OIDCLoginService):
         Validate a Kubernetes ServiceAccount JWT token.
 
         This method validates the token signature using JWKS from the Kubernetes
-        API server, but uses relaxed validation for audience and nbf claims
-        since Kubernetes tokens may not follow standard OIDC conventions.
+        API server. Audience validation is always enabled - operators must create
+        tokens with the expected audience (default: "quay").
+
+        Token creation example:
+            kubectl create token <sa-name> --audience=quay
 
         Args:
             token: The JWT token from Kubernetes SA
@@ -252,15 +270,15 @@ class KubernetesServiceAccountLoginService(OIDCLoginService):
             Decoded token claims
 
         Raises:
-            InvalidTokenError: If token validation fails
+            InvalidTokenError: If token validation fails (including audience mismatch)
             PublicKeyLoadException: If JWKS cannot be loaded
         """
         options = {
-            "verify_aud": False,  # Kubernetes audience varies by cluster config
+            "verify_aud": True,  # Always validate - bound tokens always have aud
             "verify_nbf": False,  # Some Kubernetes tokens lack nbf claim
         }
 
-        return self.decode_user_jwt(token, options=options)
+        return self.decode_user_jwt(token, options=options, audience=self._expected_audience)
 
     def get_issuer(self) -> Optional[str]:
         """

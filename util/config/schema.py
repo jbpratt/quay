@@ -610,8 +610,22 @@ CONFIG_SCHEMA = {
             "type": ["object", "null"],
             "description": "Configuration for Kubernetes ServiceAccount OIDC authentication. "
             "Enables Kubernetes operators to authenticate using ServiceAccount tokens. "
-            "Uses the in-cluster Kubernetes API server (https://kubernetes.default.svc) for OIDC.",
+            "Only ServiceAccounts listed in SUPERUSER_SUBJECTS can authenticate - they also "
+            "receive superuser permissions. Tokens must be created with audience 'quay' "
+            "(or custom EXPECTED_AUDIENCE): kubectl create token <sa> --audience=quay",
             "properties": {
+                "OIDC_SERVER": {
+                    "type": "string",
+                    "description": "Kubernetes API server OIDC issuer URL. Use for out-of-cluster "
+                    "deployments or custom issuers. Defaults to https://kubernetes.default.svc",
+                    "x-example": "https://kubernetes.default.svc",
+                },
+                "EXPECTED_AUDIENCE": {
+                    "type": "string",
+                    "description": "Expected audience claim in ServiceAccount tokens. Tokens must "
+                    "be created with this audience. Defaults to 'quay'.",
+                    "x-example": "quay",
+                },
                 "SERVICE_NAME": {
                     "type": "string",
                     "description": "Display name for the authentication service in logs.",
@@ -632,14 +646,15 @@ CONFIG_SCHEMA = {
                 "SYSTEM_ORG_NAME": {
                     "type": "string",
                     "description": "Organization name that will own robot accounts for "
-                    "authenticated ServiceAccounts. Must be created before enabling. "
-                    "Defaults to 'quay-system'.",
+                    "authenticated ServiceAccounts. Defaults to 'quay-system'.",
                     "x-example": "quay-system",
                 },
                 "SUPERUSER_SUBJECTS": {
                     "type": ["array", "null"],
-                    "description": "List of Kubernetes ServiceAccount subjects that receive "
-                    "superuser permissions. Format: system:serviceaccount:<namespace>:<name>",
+                    "description": "List of Kubernetes ServiceAccount subjects that can "
+                    "authenticate to Quay. These SAs also receive superuser permissions. "
+                    "Only SAs listed here can authenticate - others will be rejected. "
+                    "Format: system:serviceaccount:<namespace>:<name>",
                     "items": {"type": "string"},
                     "x-example": [
                         "system:serviceaccount:quay-operator:quay-operator-controller-manager"
