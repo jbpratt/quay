@@ -262,9 +262,17 @@ endif
 
 .PHONY: local-dev-up-with-clair
 local-dev-up-with-clair: local-dev-up
+	# Merge Clair config into stack config
+	python3 .github/actions/setup-quay/merge-yaml.py \
+		local-dev/stack/config.yaml \
+		local-dev/clair/clair-config.yaml > local-dev/stack/config.yaml.tmp
+	mv local-dev/stack/config.yaml.tmp local-dev/stack/config.yaml
+	# Start Clair services
 	$(DOCKER_COMPOSE) up -d clair-db
 	$(DOCKER) exec -it clair-db bash -c 'while ! pg_isready; do echo "waiting for postgres"; sleep 2; done'
 	DOCKER_USER="$$(id -u):0" $(DOCKER_COMPOSE) up -d clair
+	# Restart Quay to pick up merged config
+	$(DOCKER_COMPOSE) restart quay
 
 .PHONY: local-dev-up-with-repomirror
 local-dev-up-with-repomirror: local-dev-up
