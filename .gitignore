@@ -131,3 +131,4 @@ local-dev/stack/quay-marketplace-api.key
 # claude
 .claude/plans
 .claude/implementation
+.claude/attachments
