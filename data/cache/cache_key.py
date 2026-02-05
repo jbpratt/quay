@@ -101,3 +101,12 @@ def for_manifest_referrers(repository_id, manifest_digest, cache_config):
     """
     cache_ttl = cache_config.get("manifest_referrers_cache_ttl", "60s")
     return CacheKey(f"manifest_referrers__{repository_id}_{manifest_digest}", cache_ttl)
+
+
+def for_repo_tag(repository_id, tag_name, cache_config):
+    """
+    Returns a cache key for a single tag in a repository.
+    Tags are mutable (can be retargeted), so use shorter TTL than manifests.
+    """
+    cache_ttl = cache_config.get("repo_tag_cache_ttl", "60s")
+    return CacheKey(f"repo_tag__{repository_id}_{tag_name}", cache_ttl)

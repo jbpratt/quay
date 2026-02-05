@@ -211,6 +211,14 @@ class RegistryDataInterface(object):
         """
 
     @abstractmethod
+    def get_cached_repo_tag(self, model_cache, repository_ref, tag_name, raise_on_error=False):
+        """
+        Returns the latest, *active* tag found in the repository, with caching.
+
+        Uses a 60s TTL cache that is invalidated when tags are mutated.
+        """
+
+    @abstractmethod
     def has_expired_tag(self, repository_ref, tag_name):
         """
         Returns true if and only if the repository contains a tag with the given name that is

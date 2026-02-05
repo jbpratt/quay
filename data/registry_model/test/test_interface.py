@@ -1278,3 +1278,90 @@ def test_tag_names_for_manifest(initialized_db, registry_model):
                 found_tag = registry_model.get_repo_tag(repo_ref, found_name)
                 assert registry_model.get_manifest_for_tag(found_tag) == manifest
     assert verified_tag
+
+
+def test_get_cached_repo_tag(registry_model):
+    """Test that get_cached_repo_tag caches tag lookups and serves from cache."""
+    model_cache = InMemoryDataModelCache(TEST_CACHE_CONFIG)
+
+    repository_ref = registry_model.lookup_repository("devtable", "simple")
+    latest_tag = registry_model.get_repo_tag(repository_ref, "latest")
+    assert latest_tag is not None
+
+    # Load the tag via cached method to add it to the cache.
+    cached_tag = registry_model.get_cached_repo_tag(model_cache, repository_ref, "latest")
+    assert cached_tag is not None
+    assert cached_tag.name == latest_tag.name
+    assert cached_tag.manifest_digest == latest_tag.manifest_digest
+    assert cached_tag._db_id == latest_tag._db_id
+
+    # Disconnect from the database by overwriting the underlying function.
+    def fail(repo_id, tag_name):
+        raise SomeException("Not connected!")
+
+    with patch("data.registry_model.registry_oci_model.oci.tag.get_tag", fail):
+        # Make sure we can load again, which should hit the cache.
+        cached = registry_model.get_cached_repo_tag(model_cache, repository_ref, "latest")
+        assert cached is not None
+        assert cached.name == latest_tag.name
+        assert cached.manifest_digest == latest_tag.manifest_digest
+        assert cached._db_id == latest_tag._db_id
+
+        # Try another tag, which should fail since the DB is not connected and the cache
+        # does not contain the tag.
+        with pytest.raises(SomeException):
+            registry_model.get_cached_repo_tag(model_cache, repository_ref, "prod")
+
+
+def test_get_cached_repo_tag_invalidation_on_delete(registry_model):
+    """Test that deleting a tag invalidates its cache entry."""
+    model_cache = InMemoryDataModelCache(TEST_CACHE_CONFIG)
+
+    repository_ref = registry_model.lookup_repository("devtable", "simple")
+
+    # Cache the tag first
+    cached_tag = registry_model.get_cached_repo_tag(model_cache, repository_ref, "latest")
+    assert cached_tag is not None
+
+    # Delete the tag (this should invalidate the cache)
+    deleted_tag = registry_model.delete_tag(model_cache, repository_ref, "latest")
+    assert deleted_tag is not None
+
+    # The tag should now be None (cache was invalidated, DB lookup returns None)
+    result = registry_model.get_cached_repo_tag(model_cache, repository_ref, "latest")
+    assert result is None
+
+
+def test_get_cached_repo_tag_invalidation_on_retarget(registry_model):
+    """Test that retargeting a tag invalidates its cache entry."""
+    model_cache = InMemoryDataModelCache(TEST_CACHE_CONFIG)
+
+    repository_ref = registry_model.lookup_repository("devtable", "simple")
+
+    # Get the current tag and cache it
+    original_tag = registry_model.get_cached_repo_tag(model_cache, repository_ref, "latest")
+    assert original_tag is not None
+    original_id = original_tag._db_id
+
+    # Get the prod tag to retarget latest to its manifest
+    prod_tag = registry_model.get_repo_tag(repository_ref, "prod")
+    assert prod_tag is not None
+    prod_manifest = registry_model.get_manifest_for_tag(prod_tag)
+
+    # Retarget the tag (this should invalidate the cache)
+    updated_tag = registry_model.retarget_tag(
+        repository_ref,
+        "latest",
+        prod_manifest,
+        storage,
+        docker_v2_signing_key,
+        model_cache=model_cache,
+    )
+    assert updated_tag is not None
+    # Retargeting creates a new tag row, so IDs should differ
+    assert updated_tag._db_id != original_id
+
+    # The cached tag should now have the new tag ID (cache was invalidated, fresh lookup)
+    new_tag = registry_model.get_cached_repo_tag(model_cache, repository_ref, "latest")
+    assert new_tag is not None
+    assert new_tag._db_id == updated_tag._db_id

@@ -47,6 +47,30 @@ from util.timedeltastring import convert_to_timedelta
 logger = logging.getLogger(__name__)
 
 
+def _serialize_manifest_row(manifest_row):
+    """Serialize a manifest row for caching."""
+    if manifest_row is None:
+        return None
+    return {
+        "id": manifest_row.id,
+        "digest": manifest_row.digest,
+        "repository_id": manifest_row.repository_id,
+        "media_type_id": manifest_row.media_type_id,
+        "layers_compressed_size": manifest_row.layers_compressed_size,
+        "config_media_type": manifest_row.config_media_type,
+        "manifest_bytes": manifest_row.manifest_bytes,
+    }
+
+
+def _deserialize_manifest_row(manifest_dict):
+    """Deserialize a manifest row from cache."""
+    if manifest_dict is None:
+        return None
+    from types import SimpleNamespace
+
+    return SimpleNamespace(**manifest_dict)
+
+
 class OCIModel(RegistryDataInterface):
     """
     OCIModel implements the data model for the registry API using a database schema after it was
@@ -461,6 +485,44 @@ class OCIModel(RegistryDataInterface):
 
         return Tag.for_tag(tag, self._legacy_image_id_handler)
 
+    def get_cached_repo_tag(self, model_cache, repository_ref, tag_name, raise_on_error=False):
+        """
+        Returns the latest, *active* tag found in the repository, with caching.
+        """
+
+        def load_tag():
+            tag = self.get_repo_tag(repository_ref, tag_name, raise_on_error=False)
+            if tag is None:
+                return None  # Don't cache negative results
+
+            tag_dict = tag.asdict()
+            # Serialize complex inputs for caching
+            tag_dict["inputs"]["repository"] = tag_dict["inputs"]["repository"].asdict()
+            tag_dict["inputs"]["legacy_id_handler"] = None
+            tag_dict["inputs"]["manifest_row"] = _serialize_manifest_row(tag._manifest_row)
+            return tag_dict
+
+        tag_cache_key = cache_key.for_repo_tag(
+            repository_ref._db_id, tag_name, model_cache.cache_config
+        )
+        result = model_cache.retrieve(tag_cache_key, load_tag)
+
+        if result is None:
+            if raise_on_error:
+                raise model.TagDoesNotExist()
+            return None
+
+        # Deserialize
+        result["inputs"]["repository"] = RepositoryReference.from_dict(
+            result["inputs"]["repository"]
+        )
+        result["inputs"]["legacy_id_handler"] = self._legacy_image_id_handler
+        result["inputs"]["manifest_row"] = _deserialize_manifest_row(
+            result["inputs"]["manifest_row"]
+        )
+
+        return Tag.from_dict(result)
+
     def create_manifest_and_retarget_tag(
         self,
         repository_ref,
@@ -469,6 +531,7 @@ class OCIModel(RegistryDataInterface):
         storage,
         raise_on_error=False,
         verify_quota=False,
+        model_cache=None,
     ):
         """
         Creates a manifest in a repository, adding all of the necessary data in the model.
@@ -550,6 +613,13 @@ class OCIModel(RegistryDataInterface):
             if tag is None:
                 return (None, None)
 
+            # Invalidate tag cache
+            if model_cache is not None:
+                tag_cache_key = cache_key.for_repo_tag(
+                    repository_ref._db_id, tag_name, model_cache.cache_config
+                )
+                model_cache.invalidate(tag_cache_key)
+
             return (
                 wrapped_manifest,
                 Tag.for_tag(
@@ -565,6 +635,7 @@ class OCIModel(RegistryDataInterface):
         storage,
         legacy_manifest_key,
         is_reversion=False,
+        model_cache=None,
     ):
         """
         Creates, updates or moves a tag to a new entry in history, pointing to the manifest or
@@ -626,6 +697,13 @@ class OCIModel(RegistryDataInterface):
                 raise_on_error=True,
             )
 
+            # Invalidate tag cache
+            if model_cache is not None:
+                tag_cache_key = cache_key.for_repo_tag(
+                    repository_ref._db_id, tag_name, model_cache.cache_config
+                )
+                model_cache.invalidate(tag_cache_key)
+
             return Tag.for_tag(tag, self._legacy_image_id_handler)
 
     def delete_tag(self, model_cache, repository_ref, tag_name):
@@ -641,6 +719,12 @@ class OCIModel(RegistryDataInterface):
                 deleted_tag.repository.id, deleted_tag.manifest.digest, model_cache.cache_config
             )
             model_cache.invalidate(manifest_cache_key)
+
+            # Invalidate tag cache
+            tag_cache_key = cache_key.for_repo_tag(
+                repository_ref._db_id, tag_name, model_cache.cache_config
+            )
+            model_cache.invalidate(tag_cache_key)
 
             return Tag.for_tag(deleted_tag, self._legacy_image_id_handler)
 
@@ -658,6 +742,14 @@ class OCIModel(RegistryDataInterface):
             model_cache.invalidate(manifest_cache_key)
 
             deleted_tags = oci.tag.delete_tags_for_manifest(manifest._db_id)
+
+            # Invalidate tag cache for each deleted tag
+            for tag in deleted_tags:
+                tag_cache_key = cache_key.for_repo_tag(
+                    manifest.repository.id, tag.name, model_cache.cache_config
+                )
+                model_cache.invalidate(tag_cache_key)
+
             return [ShallowTag.for_tag(tag) for tag in deleted_tags]
 
     def change_repository_tag_expiration(self, tag, expiration_date):

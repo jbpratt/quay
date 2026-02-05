@@ -87,7 +87,9 @@ def fetch_manifest_by_tagname(namespace_name, repo_name, manifest_ref, registry_
         raise NameUnknown("repository not found")
 
     try:
-        tag = registry_model.get_repo_tag(repository_ref, manifest_ref, raise_on_error=True)
+        tag = registry_model.get_cached_repo_tag(
+            model_cache, repository_ref, manifest_ref, raise_on_error=True
+        )
     except TagDoesNotExist as e:
         if registry_model.has_expired_tag(repository_ref, manifest_ref):
             logger.debug(
@@ -521,6 +523,7 @@ def _write_manifest(
             raise_on_error=True,
             verify_quota=app.config.get("FEATURE_QUOTA_MANAGEMENT", False)
             and app.config.get("FEATURE_VERIFY_QUOTA", True),
+            model_cache=model_cache,
         )
     except CreateManifestException as cme:
         raise ManifestInvalid(detail={"message": str(cme)})
