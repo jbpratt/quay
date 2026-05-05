@@ -7,8 +7,9 @@ Quay in docker-compose for CI testing.
 """
 
 import secrets
-from flask import Flask, request, redirect, jsonify, Response
 from urllib.parse import urlencode
+
+from flask import Flask, Response, jsonify, redirect, request
 
 app = Flask(__name__)
 
@@ -46,9 +47,7 @@ def authorize():
         params = {"error": force_error, "state": state}
         return redirect(f"{redirect_uri}?{urlencode(params)}")
 
-    users_options = "".join(
-        f'<option value="{u}">{u}</option>' for u in MOCK_USERS
-    )
+    users_options = "".join(f'<option value="{u}">{u}</option>' for u in MOCK_USERS)
 
     return Response(
         f"""<!DOCTYPE html>
@@ -98,9 +97,7 @@ def authorize_decision():
 def access_token():
     code = request.args.get("code") or request.form.get("code", "")
     client_id = request.args.get("client_id") or request.form.get("client_id", "")
-    client_secret = request.args.get("client_secret") or request.form.get(
-        "client_secret", ""
-    )
+    client_secret = request.args.get("client_secret") or request.form.get("client_secret", "")
 
     if client_id != EXPECTED_CLIENT_ID or client_secret != EXPECTED_CLIENT_SECRET:
         return jsonify({"error": "bad_credentials"}), 401
