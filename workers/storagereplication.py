@@ -117,6 +117,17 @@ class StorageReplicationWorker(QueueWorker):
 
         # For each missing location, copy over the storage.
         for location in locations_missing:
+            # Check if the file already exists at the destination to avoid redundant copies.
+            if self._backoff_check_exists(location, path_to_copy, storage, backoff_check=False):
+                logger.debug(
+                    "Path `%s` already exists in location %s; skipping copy for storage %s",
+                    path_to_copy,
+                    location,
+                    partial_storage.uuid,
+                )
+                model.storage.add_storage_placement(partial_storage, location)
+                continue
+
             logger.debug(
                 "Starting copy of storage %s to location %s from %s",
                 partial_storage.uuid,
