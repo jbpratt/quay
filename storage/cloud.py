@@ -23,7 +23,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from prometheus_client import Counter
 
-from storage.basestorage import BaseStorageV2
+from storage.basestorage import BaseStorageV2, InvalidStorageConfigurationException
 from util.ipresolver import ResolvedLocation
 from util.registry import filelike
 
@@ -1019,6 +1019,14 @@ class RadosGWStorage(_CloudStorage):
         maximum_chunk_size_mb=None,
         server_side_assembly=True,
     ):
+        if region_name is not None and (
+            not isinstance(region_name, str) or not region_name.strip()
+        ):
+            raise InvalidStorageConfigurationException(
+                "RadosGWStorage: region_name must be a non-empty string if provided, "
+                f"got: {region_name!r}"
+            )
+
         upload_params = {}
         connect_kwargs = {
             "endpoint_url": _build_endpoint_url(hostname, port=port, is_secure=is_secure),

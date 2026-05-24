@@ -8,7 +8,8 @@ import botocore.exceptions
 import pytest
 from moto import mock_s3
 
-from storage import S3Storage, StorageContext
+from storage import RadosGWStorage, S3Storage, StorageContext
+from storage.basestorage import InvalidStorageConfigurationException
 from storage.cloud import (
     _CHUNKS_KEY,
     _build_endpoint_url,
@@ -349,3 +350,48 @@ def test_clean_partial_uploads(storage_engine, path):
     storage_engine.remove("uploads")
     assert not storage_engine.exists("uploads")
     storage_engine.clean_partial_uploads(timedelta(seconds=0))
+
+
+@pytest.mark.parametrize(
+    "region_name",
+    [
+        pytest.param("", id="empty string"),
+        pytest.param("   ", id="whitespace only"),
+        pytest.param(123, id="integer"),
+    ],
+)
+def test_radosgw_invalid_region_name(region_name):
+    with pytest.raises(InvalidStorageConfigurationException, match="region_name"):
+        RadosGWStorage(
+            _TEST_CONTEXT,
+            "somehost",
+            True,
+            "some/path",
+            _TEST_USER,
+            _TEST_PASSWORD,
+            _TEST_BUCKET,
+            region_name=region_name,
+        )
+
+
+@pytest.mark.parametrize(
+    "region_name",
+    [
+        pytest.param(None, id="None (default)"),
+        pytest.param("us-east-1", id="valid region"),
+    ],
+)
+def test_radosgw_valid_region_name(region_name):
+    with mock_s3():
+        boto3.client("s3").create_bucket(Bucket=_TEST_BUCKET)
+        engine = RadosGWStorage(
+            _TEST_CONTEXT,
+            "somehost",
+            True,
+            "some/path",
+            _TEST_USER,
+            _TEST_PASSWORD,
+            _TEST_BUCKET,
+            region_name=region_name,
+        )
+        assert engine is not None
