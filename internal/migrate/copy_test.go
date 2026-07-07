@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/quay/quay/internal/config"
 	"github.com/quay/quay/internal/dal/dbcore"
 )
 
@@ -56,6 +57,73 @@ func TestCopyData(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(targetDir, markerFile)); err != nil {
 		t.Error("marker file should exist after copy")
+	}
+}
+
+func TestCopyData_WritesRuntimeConfigWithSourceSecrets(t *testing.T) {
+	srcDir := t.TempDir()
+	dbDir := t.TempDir()
+	storageDir := t.TempDir()
+
+	dbPath := filepath.Join(dbDir, "quay_sqlite.db")
+	createCopyTestDB(t, dbPath)
+	writeCopyTestFile(t, filepath.Join(srcDir, "config.yaml"), []byte(`
+SERVER_HOSTNAME: old.example.com
+PREFERRED_URL_SCHEME: https
+DB_URI: sqlite:////old/quay_sqlite.db
+DISTRIBUTED_STORAGE_CONFIG:
+  old:
+    - LocalStorage
+    - storage_path: /old/storage
+SECRET_KEY: old-secret
+DATABASE_SECRET_KEY: old-database-secret
+ROBOTS_DISALLOW: true
+ROBOTS_WHITELIST:
+  - init+migratebot
+FEATURE_USER_LAST_ACCESSED: false
+`), 0o600)
+
+	targetDir := filepath.Join(t.TempDir(), "target")
+	m := &Migrator{
+		DataDir: targetDir,
+		Out:     &bytes.Buffer{},
+		Source: OMRSource{
+			ConfigDir:   srcDir,
+			DBPath:      dbPath,
+			StoragePath: storageDir,
+			Hostname:    "localhost",
+		},
+	}
+
+	if err := m.copyData(t.Context()); err != nil {
+		t.Fatalf("copyData: %v", err)
+	}
+
+	cfg, err := config.Load(filepath.Join(targetDir, "config.yaml"))
+	if err != nil {
+		t.Fatalf("load generated runtime config: %v", err)
+	}
+	if cfg.SecretKey != "old-secret" {
+		t.Fatalf("SecretKey = %q, want source secret", cfg.SecretKey)
+	}
+	if cfg.DatabaseSecretKey != "old-database-secret" {
+		t.Fatalf("DatabaseSecretKey = %q, want source database secret", cfg.DatabaseSecretKey)
+	}
+	if cfg.DBURI != "sqlite:////data/quay.db" {
+		t.Fatalf("DBURI = %q, want migrated runtime DB path", cfg.DBURI)
+	}
+	entry := cfg.DistributedStorageConfig["default"]
+	if entry.Driver != "LocalStorage" || entry.Params["storage_path"] != "/data/storage" {
+		t.Fatalf("storage config = %#v, want LocalStorage at /data/storage", entry)
+	}
+	if !cfg.RobotsDisallow {
+		t.Fatal("RobotsDisallow = false, want source setting preserved")
+	}
+	if got := cfg.RobotsWhitelist; len(got) != 1 || got[0] != "init+migratebot" {
+		t.Fatalf("RobotsWhitelist = %#v, want source whitelist", got)
+	}
+	if cfg.FeatureUserLastAccessed == nil || *cfg.FeatureUserLastAccessed {
+		t.Fatalf("FeatureUserLastAccessed = %#v, want source false", cfg.FeatureUserLastAccessed)
 	}
 }
 

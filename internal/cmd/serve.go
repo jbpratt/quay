@@ -72,13 +72,20 @@ func runServe(ctx context.Context, configPath, dataDir, hostname, addr, adminUse
 	}
 
 	reg, err := distribution.NewRegistry(ctx, &distribution.Config{
-		StoragePath:      resolved.StoragePath,
-		Hostname:         resolved.Config.ServerHostname,
-		ListenAddr:       addr,
-		DB:               db,
-		Store:            store,
-		LibraryNamespace: resolved.Config.LibraryNamespace,
-		AnonymousAccess:  resolved.Config.FeatureAnonymousAccess,
+		StoragePath:                        resolved.StoragePath,
+		Hostname:                           resolved.Config.ServerHostname,
+		ListenAddr:                         addr,
+		DB:                                 db,
+		Store:                              store,
+		LibraryNamespace:                   resolved.Config.LibraryNamespace,
+		AnonymousAccess:                    resolved.Config.FeatureAnonymousAccess,
+		DatabaseSecretKey:                  resolved.Config.DatabaseSecretKey,
+		RobotsDisallow:                     resolved.Config.RobotsDisallow,
+		RobotsWhitelist:                    resolved.Config.RobotsWhitelist,
+		FeatureUserLastAccessed:            featureEnabled(resolved.Config.FeatureUserLastAccessed),
+		LastAccessedUpdateThresholdSeconds: resolved.Config.LastAccessedUpdateThresholdS,
+		SuperUsers:                         resolved.Config.SuperUsers,
+		SuperUsersFullAccess:               featureEnabled(resolved.Config.FeatureSuperUsers) && featureEnabled(resolved.Config.FeatureSuperUsersFullAccess),
 	})
 	if err != nil {
 		slog.Error("registry setup error", "err", err)
@@ -99,7 +106,7 @@ func runServe(ctx context.Context, configPath, dataDir, hostname, addr, adminUse
 	}
 
 	api, err := apiv1.New(apiv1.Config{
-		Authenticator: auth.NewBasicAuthenticator(db),
+		Authenticator: auth.NewBasicAuthenticator(auth.NewUserPasswordVerifier(db)),
 		Realm:         resolved.Config.ServerHostname,
 	},
 		repositoryapi.NewModule(repositoryService),
