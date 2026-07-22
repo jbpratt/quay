@@ -42,16 +42,7 @@ func New(ctx context.Context, handler http.Handler, cfg *Config, opts ...Option)
 		fn(&o)
 	}
 
-	mux := http.NewServeMux()
-	for _, r := range o.extraRoutes {
-		mux.Handle(r.pattern, r.handler)
-	}
-	mux.Handle("/", handler)
-
-	var wrapped http.Handler = mux
-	if o.middleware != nil {
-		wrapped = o.middleware(mux)
-	}
+	wrapped := newHandler(handler, o)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -74,6 +65,20 @@ func New(ctx context.Context, handler http.Handler, cfg *Config, opts ...Option)
 	}
 
 	return s, nil
+}
+
+func newHandler(handler http.Handler, o options) http.Handler {
+	mux := http.NewServeMux()
+	for _, r := range o.extraRoutes {
+		mux.Handle(r.pattern, r.handler)
+	}
+	mux.Handle("/", handler)
+
+	var wrapped http.Handler = mux
+	if o.middleware != nil {
+		wrapped = o.middleware(mux)
+	}
+	return wrapped
 }
 
 // ListenAndServe starts the server and blocks until the context is canceled

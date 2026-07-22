@@ -30,7 +30,10 @@ import (
 	repositorydal "github.com/quay/quay/internal/repository/dal"
 	"github.com/quay/quay/internal/server"
 	"github.com/quay/quay/internal/system"
+	"github.com/quay/quay/internal/tracing"
 )
+
+const tracingShutdownTimeout = 5 * time.Second
 
 func newServeCmd() *Command {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
@@ -50,11 +53,12 @@ func newServeCmd() *Command {
 }
 
 func runServe(ctx context.Context, configPath, dataDir, hostname, addr string) int {
-	resolved, err := config.Resolve(configPath, dataDir, hostname)
+	resolved, tracingProvider, err := resolveServeConfig(ctx, configPath, dataDir, hostname)
 	if err != nil {
-		slog.Error("config error", "err", err)
+		slog.Error("server setup error", "err", err)
 		return 1
 	}
+	defer shutdownTracing(tracingProvider)
 
 	db, err := dbcore.Setup(ctx, resolved.DBPath)
 	if err != nil {
@@ -166,7 +170,13 @@ func runServe(ctx context.Context, configPath, dataDir, hostname, addr string) i
 	mux.Handle("/v2/auth", reg.TokenHandler())
 	mux.Handle("/", v2Handler)
 
-	srv, err := newRegistryServer(ctx, mux, resolved, addr)
+	srv, err := newRegistryServer(
+		ctx,
+		mux,
+		resolved,
+		addr,
+		server.WithMiddleware(tracingProvider.WrapHTTP),
+	)
 	if err != nil {
 		slog.Error("server build error", "err", err)
 		return 1
@@ -196,7 +206,13 @@ func registryTLSHostname(publicHostname string) (string, error) {
 	return system.HostnameWithoutPort(publicHostname)
 }
 
-func newRegistryServer(ctx context.Context, handler http.Handler, resolved *config.Resolved, addr string) (*server.Server, error) {
+func newRegistryServer(
+	ctx context.Context,
+	handler http.Handler,
+	resolved *config.Resolved,
+	addr string,
+	opts ...server.Option,
+) (*server.Server, error) {
 	tlsHostname, err := registryTLSHostname(resolved.Config.ServerHostname)
 	if err != nil {
 		return nil, fmt.Errorf("invalid registry hostname %q: %w", resolved.Config.ServerHostname, err)
@@ -206,7 +222,7 @@ func newRegistryServer(ctx context.Context, handler http.Handler, resolved *conf
 		Hostname:        tlsHostname,
 		PreferredScheme: resolved.Config.PreferredURLScheme,
 		CertDir:         resolved.DataDir,
-	})
+	}, opts...)
 }
 
 func loadRegistryTokenService(resolved *config.Resolved) (*jwtauth.Service, string, error) {
@@ -254,4 +270,52 @@ func healthHandler(db *sql.DB) http.Handler {
 
 func featureEnabled(configured *bool) bool {
 	return configured != nil && *configured
+}
+
+func newTracingProvider(ctx context.Context, cfg *config.Config) (*tracing.Provider, error) {
+	if !featureEnabled(cfg.FeatureOTELTracing) {
+		return &tracing.Provider{}, nil
+	}
+	warnIgnoredTracingConfig(cfg)
+	return tracing.NewProvider(ctx)
+}
+
+func warnIgnoredTracingConfig(cfg *config.Config) {
+	var ignored []string
+	for _, name := range []string{"OTEL_CONFIG", "OTEL_TRACING_EXCLUDED_URLS"} {
+		if _, configured := cfg.Extra[name]; configured {
+			ignored = append(ignored, name)
+		}
+	}
+	if len(ignored) > 0 {
+		slog.Warn(
+			"legacy tracing configuration is not used by the Go server; configure standard OTEL_* environment variables",
+			"ignored", ignored,
+		)
+	}
+}
+
+func resolveServeConfig(ctx context.Context, configPath, dataDir, hostname string) (*config.Resolved, *tracing.Provider, error) {
+	resolved, err := config.Resolve(configPath, dataDir, hostname)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve config: %w", err)
+	}
+
+	provider, err := newTracingProvider(ctx, resolved.Config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("setup tracing: %w", err)
+	}
+	return resolved, provider, nil
+}
+
+func shutdownTracing(provider *tracing.Provider) {
+	if provider == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), tracingShutdownTimeout)
+	defer cancel()
+	if err := provider.Shutdown(ctx); err != nil {
+		slog.Error("tracing shutdown error", "err", err)
+	}
 }

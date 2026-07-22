@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"bytes"
+	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/quay/quay/internal/config"
 	"github.com/stretchr/testify/assert"
@@ -39,6 +42,63 @@ func TestServeHasNoBootstrapCredentialFlags(t *testing.T) {
 func TestServeDefaultHostnameIncludesListenPort(t *testing.T) {
 	cmd := newServeCmd()
 	assert.Equal(t, "localhost:8443", cmd.Flags.Lookup("hostname").DefValue)
+}
+
+func TestNewTracingProviderHonorsFeatureFlag(t *testing.T) {
+	t.Setenv("OTEL_TRACES_EXPORTER", "invalid")
+
+	t.Run("absent", func(t *testing.T) {
+		provider, err := newTracingProvider(t.Context(), &config.Config{})
+		assert.NoError(t, err)
+		assert.NotNil(t, provider)
+	})
+
+	t.Run("false", func(t *testing.T) {
+		disabled := false
+		provider, err := newTracingProvider(t.Context(), &config.Config{
+			Features: config.Features{FeatureOTELTracing: &disabled},
+		})
+		assert.NoError(t, err)
+		assert.NotNil(t, provider)
+	})
+
+	t.Run("true", func(t *testing.T) {
+		enabled := true
+		provider, err := newTracingProvider(t.Context(), &config.Config{
+			Features: config.Features{FeatureOTELTracing: &enabled},
+		})
+		assert.Error(t, err)
+		assert.Nil(t, provider)
+	})
+}
+
+func TestNewTracingProviderWarnsAboutIgnoredLegacyConfig(t *testing.T) {
+	t.Setenv("OTEL_TRACES_EXPORTER", "invalid")
+	var output bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(oldLogger) })
+	enabled := true
+
+	provider, err := newTracingProvider(t.Context(), &config.Config{
+		Features: config.Features{FeatureOTELTracing: &enabled},
+		Extra: map[string]any{
+			"OTEL_CONFIG":                map[string]any{"dt_api_token": "sentinel-secret"},
+			"OTEL_TRACING_EXCLUDED_URLS": "/sensitive/path",
+		},
+	})
+
+	assert.Error(t, err)
+	assert.Nil(t, provider)
+	assert.Contains(t, output.String(), "OTEL_CONFIG")
+	assert.Contains(t, output.String(), "OTEL_TRACING_EXCLUDED_URLS")
+	assert.NotContains(t, output.String(), "sentinel-secret")
+	assert.NotContains(t, output.String(), "/sensitive/path")
+}
+
+func TestShutdownTracingAllowsNilProvider(t *testing.T) {
+	assert.NotPanics(t, func() { shutdownTracing(nil) })
+	assert.Equal(t, 5*time.Second, tracingShutdownTimeout)
 }
 
 func TestRegistryTLSHostnameRemovesOnlyPublicPort(t *testing.T) {

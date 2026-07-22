@@ -129,7 +129,6 @@ var knownUnmapped = map[string]bool{
 	"FEATURE_LOG_EXPORT":                            true,
 	"FEATURE_MANIFEST_SUBJECT_BACKFILL":             true,
 	"FEATURE_ORG_MIRROR":                            true,
-	"FEATURE_OTEL_TRACING":                          true,
 	"FEATURE_PARTIAL_USER_AUTOCOMPLETE":             true,
 	"FEATURE_PERMANENT_SESSIONS":                    true,
 	"FEATURE_PROGRAMMATIC_BOOTSTRAP":                true,

@@ -108,6 +108,34 @@ func TestParseExplicitFalseNotOverridden(t *testing.T) {
 	assert.False(t, *cfg.FeatureDirectLogin)
 }
 
+func TestParseFeatureOTELTracing(t *testing.T) {
+	t.Run("absent is disabled", func(t *testing.T) {
+		cfg, err := Parse([]byte("SERVER_HOSTNAME: test\n"))
+		require.NoError(t, err)
+
+		assert.Nil(t, cfg.FeatureOTELTracing)
+	})
+
+	tests := []struct {
+		name    string
+		yaml    string
+		enabled bool
+	}{
+		{name: "explicit false", yaml: "FEATURE_OTEL_TRACING: false\n", enabled: false},
+		{name: "explicit true", yaml: "FEATURE_OTEL_TRACING: true\n", enabled: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg, err := Parse([]byte(test.yaml))
+			require.NoError(t, err)
+
+			require.NotNil(t, cfg.FeatureOTELTracing)
+			assert.Equal(t, test.enabled, *cfg.FeatureOTELTracing)
+			assert.NotContains(t, cfg.Extra, "FEATURE_OTEL_TRACING")
+		})
+	}
+}
+
 func TestParseUnknownFields(t *testing.T) {
 	yaml := `
 SERVER_HOSTNAME: test
