@@ -34,6 +34,27 @@ func (q *Queries) ExpireActiveTag(ctx context.Context, arg ExpireActiveTagParams
 	return q.db.ExecContext(ctx, expireActiveTag, arg.LifetimeEndMs, arg.RepositoryID, arg.Name)
 }
 
+const extendTempTag = `-- name: ExtendTempTag :execrows
+UPDATE tag SET lifetime_end_ms = ?
+WHERE manifest_id = ? AND hidden = 1 AND lifetime_end_ms IS NOT NULL AND lifetime_end_ms < ?
+`
+
+type ExtendTempTagParams struct {
+	LifetimeEndMs   sql.NullInt64 `json:"lifetime_end_ms"`
+	ManifestID      sql.NullInt64 `json:"manifest_id"`
+	LifetimeEndMs_2 sql.NullInt64 `json:"lifetime_end_ms_2"`
+}
+
+// Pushes the expiry of a manifest's existing temp tag(s) forward so a re-push
+// renews protection without inserting another row.
+func (q *Queries) ExtendTempTag(ctx context.Context, arg ExtendTempTagParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, extendTempTag, arg.LifetimeEndMs, arg.ManifestID, arg.LifetimeEndMs_2)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getActiveTagDigest = `-- name: GetActiveTagDigest :one
 SELECT m.digest
 FROM tag t
@@ -135,6 +156,27 @@ func (q *Queries) HasNonExpiringTagForManifest(ctx context.Context, manifestID s
 	return has_tag, err
 }
 
+const hasTagProtectingManifestUntil = `-- name: HasTagProtectingManifestUntil :one
+SELECT EXISTS(
+    SELECT 1 FROM tag
+    WHERE manifest_id = ? AND (lifetime_end_ms IS NULL OR lifetime_end_ms >= ?)
+) AS has_tag
+`
+
+type HasTagProtectingManifestUntilParams struct {
+	ManifestID    sql.NullInt64 `json:"manifest_id"`
+	LifetimeEndMs sql.NullInt64 `json:"lifetime_end_ms"`
+}
+
+// Returns true if the manifest has a tag that never expires or expires at or
+// after the given epoch-ms, i.e. a temp tag would add no protection.
+func (q *Queries) HasTagProtectingManifestUntil(ctx context.Context, arg HasTagProtectingManifestUntilParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, hasTagProtectingManifestUntil, arg.ManifestID, arg.LifetimeEndMs)
+	var has_tag int64
+	err := row.Scan(&has_tag)
+	return has_tag, err
+}
+
 const insertHiddenTag = `-- name: InsertHiddenTag :one
 INSERT INTO tag (name, repository_id, manifest_id, lifetime_start_ms, tag_kind_id, hidden)
 VALUES (?, ?, ?, ?, ?, 1)
@@ -156,6 +198,38 @@ func (q *Queries) InsertHiddenTag(ctx context.Context, arg InsertHiddenTagParams
 		arg.RepositoryID,
 		arg.ManifestID,
 		arg.LifetimeStartMs,
+		arg.TagKindID,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertTempTag = `-- name: InsertTempTag :one
+INSERT INTO tag (name, repository_id, manifest_id, lifetime_start_ms, lifetime_end_ms, tag_kind_id, hidden)
+VALUES (?, ?, ?, ?, ?, ?, 1)
+RETURNING id
+`
+
+type InsertTempTagParams struct {
+	Name            string        `json:"name"`
+	RepositoryID    int64         `json:"repository_id"`
+	ManifestID      sql.NullInt64 `json:"manifest_id"`
+	LifetimeStartMs int64         `json:"lifetime_start_ms"`
+	LifetimeEndMs   sql.NullInt64 `json:"lifetime_end_ms"`
+	TagKindID       int64         `json:"tag_kind_id"`
+}
+
+// Hidden, expiring tag that protects an untagged manifest from GC until a
+// real tag or a parent index references it. Mirrors Python's
+// create_temporary_tag_if_necessary (data/model/oci/tag.py).
+func (q *Queries) InsertTempTag(ctx context.Context, arg InsertTempTagParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertTempTag,
+		arg.Name,
+		arg.RepositoryID,
+		arg.ManifestID,
+		arg.LifetimeStartMs,
+		arg.LifetimeEndMs,
 		arg.TagKindID,
 	)
 	var id int64

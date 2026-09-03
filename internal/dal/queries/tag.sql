@@ -53,3 +53,25 @@ SELECT m.digest
 FROM tag t
 JOIN manifest m ON t.manifest_id = m.id
 WHERE t.repository_id = ? AND t.name = ? AND t.lifetime_end_ms IS NULL;
+
+-- name: InsertTempTag :one
+-- Hidden, expiring tag that protects an untagged manifest from GC until a
+-- real tag or a parent index references it. Mirrors Python's
+-- create_temporary_tag_if_necessary (data/model/oci/tag.py).
+INSERT INTO tag (name, repository_id, manifest_id, lifetime_start_ms, lifetime_end_ms, tag_kind_id, hidden)
+VALUES (?, ?, ?, ?, ?, ?, 1)
+RETURNING id;
+
+-- name: HasTagProtectingManifestUntil :one
+-- Returns true if the manifest has a tag that never expires or expires at or
+-- after the given epoch-ms, i.e. a temp tag would add no protection.
+SELECT EXISTS(
+    SELECT 1 FROM tag
+    WHERE manifest_id = ? AND (lifetime_end_ms IS NULL OR lifetime_end_ms >= ?)
+) AS has_tag;
+
+-- name: ExtendTempTag :execrows
+-- Pushes the expiry of a manifest's existing temp tag(s) forward so a re-push
+-- renews protection without inserting another row.
+UPDATE tag SET lifetime_end_ms = ?
+WHERE manifest_id = ? AND hidden = 1 AND lifetime_end_ms IS NOT NULL AND lifetime_end_ms < ?;

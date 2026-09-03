@@ -118,8 +118,22 @@ func ensureRepo(t *testing.T, env *testEnv, ns, name string) int64 {
 	return id
 }
 
-// insertManifest creates a manifest and returns its ID.
+// insertManifest creates an untagged manifest and returns its ID. The push-time
+// temp tag is removed so the manifest is immediately eligible for collection,
+// as it would be once the temp tag has expired and been collected.
 func insertManifest(t *testing.T, env *testEnv, repoID int64, dgst digest.Digest) int64 {
+	t.Helper()
+	id := insertFreshManifest(t, env, repoID, dgst)
+	if _, err := env.db.ExecContext(t.Context(),
+		`DELETE FROM tag WHERE manifest_id = ? AND hidden = 1 AND lifetime_end_ms IS NOT NULL`, id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// insertFreshManifest creates an untagged manifest exactly as a push does,
+// including its temp protection tag.
+func insertFreshManifest(t *testing.T, env *testEnv, repoID int64, dgst digest.Digest) int64 {
 	t.Helper()
 	id, err := env.store.PutManifest(t.Context(), repoID, oci.ManifestRecord{
 		Digest:    dgst,
@@ -1046,7 +1060,7 @@ func TestCollect_NeverTaggedManifest(t *testing.T) {
 
 	repoID := ensureRepo(t, env, "library", "nginx")
 	dgst := mustDigest("never-tagged")
-	insertManifest(t, env, repoID, dgst)
+	insertManifest(t, env, repoID, dgst) // temp tag already gone
 
 	stats, err := env.collector.Collect(ctx)
 	if err != nil {
@@ -1431,4 +1445,45 @@ func getManifestID(t *testing.T, env *testEnv, repoID int64, dgst digest.Digest)
 func ctx(t *testing.T) context.Context {
 	t.Helper()
 	return t.Context()
+}
+
+// TestCollect_UntaggedManifestProtectedByTempTag verifies a manifest pushed
+// without a tag (a multi-arch child, or an image pushed by digest) survives GC
+// until its temp tag expires and passes the namespace grace period.
+func TestCollect_UntaggedManifestProtectedByTempTag(t *testing.T) {
+	env := setup(t)
+	ctx := t.Context()
+
+	repoID := ensureRepo(t, env, "library", "nginx")
+	dgst := mustDigest("pushed-by-digest")
+	manifestID := insertFreshManifest(t, env, repoID, dgst)
+	blobID, err := env.store.PutRepositoryBlob(ctx, repoID, oci.BlobRecord{Digest: mustDigest("layer"), Size: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkBlobToManifest(t, env, repoID, manifestID, blobID)
+	if _, err := env.db.ExecContext(ctx, "UPDATE uploadedblob SET expires_at = datetime('now', '-2 hours')"); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := env.collector.Collect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.ManifestsDeleted != 0 || stats.BlobsDeleted != 0 {
+		t.Fatalf("temp-tagged manifest must survive GC, got %+v", stats)
+	}
+
+	// Temp tag expired and past the namespace's removed_tag_expiration_s.
+	if _, err := env.db.ExecContext(ctx,
+		`UPDATE tag SET lifetime_end_ms = 1 WHERE manifest_id = ? AND hidden = 1`, manifestID); err != nil {
+		t.Fatal(err)
+	}
+	stats, err = env.collector.Collect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.TagsExpired != 1 || stats.ManifestsDeleted != 1 || stats.BlobsDeleted != 1 {
+		t.Fatalf("expected temp tag, manifest and blob collected after expiry, got %+v", stats)
+	}
 }

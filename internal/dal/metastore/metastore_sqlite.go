@@ -171,27 +171,36 @@ func (s *SQLiteStore) PutManifest(ctx context.Context, repoID int64, m oci.Manif
 	}
 
 	for _, childDgst := range m.ChildDigests {
-		if err := s.linkChild(ctx, q, repoID, manifestID, mtID, childDgst); err != nil {
+		if err := s.linkChild(ctx, q, repoID, manifestID, childDgst); err != nil {
 			return 0, err
 		}
 	}
 
-	if m.Tag != "" {
-		if _, err := s.putTag(ctx, q, repoID, manifestID, m.Tag); err != nil {
-			return 0, err
-		}
-	}
-
-	if m.Subject != "" {
-		if err := s.setSubjectAndProtect(ctx, q, repoID, manifestID, &m); err != nil {
-			return 0, err
-		}
+	if err := s.protectManifest(ctx, q, repoID, manifestID, &m); err != nil {
+		return 0, err
 	}
 
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit: %w", err)
 	}
 	return manifestID, nil
+}
+
+// protectManifest makes sure every manifest ends up with a tag the GC
+// respects: the pushed tag, the non-expiring hidden tag of a referrer, or an
+// expiring temp tag for an untagged push (a platform child of a multi-arch
+// index, or an image pushed by digest). Without one, the GC would collect the
+// manifest on its next cycle, before the referencing index or tag arrives.
+func (s *SQLiteStore) protectManifest(ctx context.Context, q *daldb.Queries, repoID, manifestID int64, m *oci.ManifestRecord) error {
+	switch {
+	case m.Tag != "":
+		_, err := s.putTag(ctx, q, repoID, manifestID, m.Tag)
+		return err
+	case m.Subject != "":
+		return s.setSubjectAndProtect(ctx, q, repoID, manifestID, m)
+	default:
+		return s.ensureTempTag(ctx, q, repoID, manifestID)
+	}
 }
 
 // setSubjectAndProtect sets the subject column on a manifest and creates a
@@ -234,26 +243,21 @@ func (s *SQLiteStore) setSubjectAndProtect(ctx context.Context, q *daldb.Queries
 	return nil
 }
 
-// linkChild resolves or creates a child manifest and links it to the parent
-// via manifestchild. Under concurrent multi-arch pushes, the child's metadata
-// write may not have committed yet even though distribution accepted the blob.
-// In that case, we create a placeholder manifest row so the FK link succeeds.
-func (s *SQLiteStore) linkChild(ctx context.Context, q *daldb.Queries, repoID, manifestID, mtID int64, childDgst digest.Digest) error {
+// linkChild links an existing child manifest to its parent via manifestchild.
+// A child that is not in the database is an error, never a placeholder: the
+// child's PutManifest commits before its PUT returns, so by the time a client
+// sends the index every child row exists unless it was deleted. Distribution
+// rejects such an index before this code runs (MANIFEST_BLOB_UNKNOWN); this
+// is the backstop that keeps the metadata consistent if it does not.
+func (s *SQLiteStore) linkChild(ctx context.Context, q *daldb.Queries, repoID, manifestID int64, childDgst digest.Digest) error {
 	child, err := q.GetManifestByDigest(ctx, daldb.GetManifestByDigestParams{
 		RepositoryID: repoID,
 		Digest:       childDgst.String(),
 	})
 	if errors.Is(err, sql.ErrNoRows) {
-		child.ID, err = q.UpsertManifest(ctx, daldb.UpsertManifestParams{
-			RepositoryID:  repoID,
-			Digest:        childDgst.String(),
-			MediaTypeID:   mtID,
-			ManifestBytes: "{}",
-		})
-		if err != nil {
-			return fmt.Errorf("ensure child manifest %s: %w", childDgst, err)
-		}
-	} else if err != nil {
+		return fmt.Errorf("child manifest %s: %w", childDgst, oci.ErrNotExist)
+	}
+	if err != nil {
 		return fmt.Errorf("lookup child manifest %s: %w", childDgst, err)
 	}
 	if err := q.LinkManifestChild(ctx, daldb.LinkManifestChildParams{
@@ -262,6 +266,57 @@ func (s *SQLiteStore) linkChild(ctx context.Context, q *daldb.Queries, repoID, m
 		ChildManifestID: child.ID,
 	}); err != nil {
 		return fmt.Errorf("link child manifest %s: %w", childDgst, err)
+	}
+	return nil
+}
+
+// PushTempTagExpiration is how long an untagged manifest is protected from GC
+// after a push. Matches Python's PUSH_TEMP_TAG_EXPIRATION_SEC and the
+// uploadedblob grace period, so a multi-arch push has the same window to
+// deliver its index as its blobs have to be referenced by a manifest.
+const PushTempTagExpiration = time.Hour
+
+// ensureTempTag creates a hidden, expiring tag for a manifest that was pushed
+// without one, unless an existing tag already protects it for at least as
+// long. A re-push renews an existing temp tag instead of adding a row.
+// Mirrors Python's create_temporary_tag_if_necessary.
+func (s *SQLiteStore) ensureTempTag(ctx context.Context, q *daldb.Queries, repoID, manifestID int64) error {
+	now := time.Now().UnixMilli()
+	end := now + PushTempTagExpiration.Milliseconds()
+	mid := sql.NullInt64{Int64: manifestID, Valid: true}
+
+	protected, err := q.HasTagProtectingManifestUntil(ctx, daldb.HasTagProtectingManifestUntilParams{
+		ManifestID:    mid,
+		LifetimeEndMs: sql.NullInt64{Int64: end, Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("check protecting tag for manifest %d: %w", manifestID, err)
+	}
+	if protected != 0 {
+		return nil
+	}
+
+	extended, err := q.ExtendTempTag(ctx, daldb.ExtendTempTagParams{
+		LifetimeEndMs:   sql.NullInt64{Int64: end, Valid: true},
+		ManifestID:      mid,
+		LifetimeEndMs_2: sql.NullInt64{Int64: end, Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("extend temp tag for manifest %d: %w", manifestID, err)
+	}
+	if extended > 0 {
+		return nil
+	}
+
+	if _, err := q.InsertTempTag(ctx, daldb.InsertTempTagParams{
+		Name:            "$temp-" + uuid.NewString(),
+		RepositoryID:    repoID,
+		ManifestID:      mid,
+		LifetimeStartMs: now,
+		LifetimeEndMs:   sql.NullInt64{Int64: end, Valid: true},
+		TagKindID:       s.tagKindTag,
+	}); err != nil {
+		return fmt.Errorf("insert temp tag for manifest %d: %w", manifestID, err)
 	}
 	return nil
 }
