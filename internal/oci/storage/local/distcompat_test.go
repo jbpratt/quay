@@ -19,6 +19,7 @@ import (
 	"github.com/quay/quay/internal/dal/dbcore"
 	"github.com/quay/quay/internal/dal/metastore"
 	"github.com/quay/quay/internal/oci"
+	"github.com/quay/quay/internal/oci/storage"
 )
 
 func setupDistTest(t *testing.T) (*DistDriver, oci.BlobStore, oci.MetadataStore) {
@@ -663,7 +664,7 @@ func TestDistDriver_ManifestRevisionLink_MetadataHit(t *testing.T) {
 	}
 }
 
-func TestDistDriver_ManifestRevisionLink_BlobOnlyFallback(t *testing.T) {
+func TestDistDriver_ManifestRevisionLink_BlobOnlyNotResolved(t *testing.T) {
 	dd, blobs, store := setupDistTest(t)
 	ctx := t.Context()
 
@@ -671,18 +672,64 @@ func TestDistDriver_ManifestRevisionLink_BlobOnlyFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A manifest file present in blob storage but absent from the database
+	// (e.g. removed by GC or an operator) must not resolve.
 	content := []byte("blob-only-manifest-content")
 	dgst := digest.FromBytes(content)
 	if err := blobs.PutContent(ctx, dgst, content); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := dd.GetContent(ctx, revisionLinkPath("lib/test", dgst))
-	if err != nil {
-		t.Fatalf("expected blob-only fallback to resolve, got: %v", err)
+	_, err := dd.GetContent(ctx, revisionLinkPath("lib/test", dgst))
+	requirePathNotFound(t, err)
+	_, err = dd.Stat(ctx, revisionLinkPath("lib/test", dgst))
+	requirePathNotFound(t, err)
+}
+
+func TestDistDriver_BlobPutContent_DoesNotStoreManifestBytes(t *testing.T) {
+	dd, blobs, store := setupDistTest(t)
+	ctx := t.Context()
+
+	content := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json"}`)
+	dgst := digest.FromBytes(content)
+	blobPath := "/docker/registry/v2/blobs/sha256/" + dgst.Encoded()[:2] + "/" + dgst.Encoded() + "/data"
+
+	// Distribution's manifest handlers write the payload through PutContent.
+	if err := dd.PutContent(ctx, blobPath, content); err != nil {
+		t.Fatal(err)
 	}
-	if string(got) != dgst.String() {
-		t.Fatalf("got %q, want %q", got, dgst.String())
+	if _, err := blobs.Stat(ctx, dgst); !errors.Is(err, storage.ErrNotExist) {
+		t.Fatalf("manifest bytes must not be written to blob storage, Stat err = %v", err)
+	}
+	_, err := dd.GetContent(ctx, blobPath)
+	requirePathNotFound(t, err)
+
+	// Once the middleware records the manifest, the same path serves it from SQLite.
+	repoID, err := store.EnsureRepository(ctx, oci.RepositoryName{Namespace: "lib", Name: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PutManifest(ctx, repoID, oci.ManifestRecord{
+		Digest:    dgst,
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Content:   content,
+		Tag:       "latest",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dd.GetContent(ctx, blobPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("GetContent = %s, want %s", got, content)
+	}
+	info, err := dd.Stat(ctx, blobPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() != int64(len(content)) {
+		t.Errorf("Stat size = %d, want %d", info.Size(), len(content))
 	}
 }
 

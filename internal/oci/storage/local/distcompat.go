@@ -21,6 +21,14 @@ import (
 // calls to two backends based on path classification:
 //   - Blob + Upload paths → oci.BlobStore
 //   - Metadata paths → oci.MetadataStore (SQLite)
+//
+// The metadata store is the sole source of truth for manifests. Manifest
+// bytes are never written to blob storage: distribution's manifest handlers
+// reach PutContent on a blob path, which is a no-op here, and the middleware
+// persists the payload in manifest.manifest_bytes. Reads of a manifest's blob
+// path and its revision link resolve from the database only, so a manifest
+// that the GC (or an operator) removed from the database is gone from the
+// registry as well.
 type DistDriver struct {
 	blobs oci.BlobStore
 	meta  oci.MetadataStore
@@ -44,8 +52,8 @@ func (d *DistDriver) Close() error {
 func (d *DistDriver) Name() string { return "quay" }
 
 // GetContent reads small objects. Blobs are fetched by digest from the
-// BlobStore, upload state from the upload directory, and metadata links
-// (tags, layers, manifest revisions) from SQLite.
+// BlobStore (manifest bytes from SQLite), upload state from the upload
+// directory, and metadata links (tags, layers, manifest revisions) from SQLite.
 func (d *DistDriver) GetContent(ctx context.Context, path string) ([]byte, error) {
 	switch classify(path) {
 	case pathBlob:
@@ -134,24 +142,12 @@ func (d *DistDriver) resolveLink(ctx context.Context, repoID int64, path string)
 	return "", fmt.Errorf("unknown metadata path")
 }
 
-// resolveManifestRevision checks if a manifest exists, first via SQLite metadata,
-// then falling back to the BlobStore. The fallback handles the race where a child
-// manifest blob was written by distribution but the middleware's metadata write
-// hasn't committed yet (common under concurrent multi-arch pushes).
+// resolveManifestRevision checks manifest existence in SQLite only. Blob
+// storage is never consulted: it does not hold manifest bytes, and a manifest
+// absent from the database must not be servable (or count as an existing
+// child when distribution validates an index).
 func (d *DistDriver) resolveManifestRevision(ctx context.Context, repoID int64, dgst digest.Digest) (digest.Digest, error) {
-	result, err := d.meta.GetManifestDigest(ctx, repoID, dgst)
-	if err == nil {
-		return result, nil
-	}
-	if !errors.Is(err, oci.ErrNotExist) {
-		return "", err
-	}
-	if _, statErr := d.blobs.Stat(ctx, dgst); statErr == nil {
-		return dgst, nil
-	} else if !errors.Is(statErr, storage.ErrNotExist) {
-		return "", statErr
-	}
-	return "", fmt.Errorf("manifest revision not found: %s", dgst)
+	return d.meta.GetManifestDigest(ctx, repoID, dgst)
 }
 
 // resolveLayerLink checks if a blob is linked to the repo via manifestblob or
@@ -169,17 +165,18 @@ func (d *DistDriver) resolveLayerLink(ctx context.Context, repoID int64, path st
 	return "", fmt.Errorf("blob not linked")
 }
 
-// PutContent writes small objects. Blob content is stored by digest,
-// upload state goes to the upload directory. Metadata link writes are
-// no-ops because the middleware already records them in SQLite.
+// PutContent writes small objects. Upload state goes to the upload directory.
+// Blob-path and metadata-link writes are no-ops: distribution only calls
+// PutContent on a blob path for manifest payloads (layers arrive through the
+// upload lifecycle and Move), and the middleware records manifests and links
+// in SQLite.
 func (d *DistDriver) PutContent(ctx context.Context, path string, content []byte) error {
 	switch classify(path) {
 	case pathBlob:
-		dgst, err := digestFromBlobPath(path)
-		if err != nil {
+		if _, err := digestFromBlobPath(path); err != nil {
 			return err
 		}
-		return d.blobs.PutContent(ctx, dgst, content)
+		return nil // manifest bytes live in manifest.manifest_bytes
 
 	case pathUpload:
 		id := uploadIDFromPath(path)
