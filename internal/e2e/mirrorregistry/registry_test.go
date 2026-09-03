@@ -233,22 +233,34 @@ func TestRegistryMultiArchGarbageCollectionCascade(t *testing.T) {
 	}
 
 	require.NoError(t, h.Registry().DeleteManifest(ctx, repository, indexResponse.Digest))
+	assertRegistryMissing(t, h, repository, "latest")
+	assertRegistryMissing(t, h, repository, indexResponse.Digest.String())
+
+	// The children were pushed by digest, so their push-time temp tags keep
+	// them (and their blobs) alive for the same window as uploaded blobs.
+	require.NoError(t, h.ExpireUploadProtection(ctx))
 	stats, err := h.CollectGarbage(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 2, stats.ManifestsDeleted)
+	assert.Zero(t, stats.TagsExpired)
+	assert.Zero(t, stats.ManifestsDeleted)
 	assert.Zero(t, stats.BlobsDeleted)
+	for _, child := range []pushedImage{amd64, arm64} {
+		manifest, err := h.Registry().GetManifest(ctx, repository, child.digest.String())
+		require.NoError(t, err)
+		assert.Equal(t, child.manifest, manifest.Body)
+	}
 
-	require.NoError(t, h.ExpireUploadProtection(ctx))
+	require.NoError(t, h.ExpireTempTagProtection(ctx))
 	stats, err = h.CollectGarbage(ctx)
 	require.NoError(t, err)
-	assert.Zero(t, stats.ManifestsDeleted)
+	assert.Equal(t, 2, stats.TagsExpired)
+	assert.Equal(t, 2, stats.ManifestsDeleted)
 	assert.Equal(t, 4, stats.BlobsDeleted)
 	assert.Equal(t, int64(len(amd64Config)+len(amd64Layer)+len(arm64Config)+len(arm64Layer)), stats.BytesReclaimed)
-	assertRegistryMissing(t, h, repository, "latest")
-	// GC removes both child metadata rows, but Distribution digest revision
-	// links remain readable until manifest-link collection is implemented.
-	// Blob 404s below prove the collected child images are no longer usable.
+	// SQLite is the source of truth: collected children are gone from the
+	// registry, not just their blobs.
 	for _, child := range []pushedImage{amd64, arm64} {
+		assertRegistryMissing(t, h, repository, child.digest.String())
 		assertBlobMissing(t, h, repository, child.config)
 		assertBlobMissing(t, h, repository, child.layer)
 	}
