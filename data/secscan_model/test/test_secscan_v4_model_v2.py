@@ -11,7 +11,10 @@ from app import instance_keys, storage
 from data.database import IndexerVersion, IndexStatus, Manifest, ManifestSecurityStatus
 from data.registry_model import registry_model
 from data.secscan_model.secscan_v4_model import IndexReportState
-from data.secscan_model.secscan_v4_model_v2 import V4SecurityScannerV2
+from data.secscan_model.secscan_v4_model_v2 import (
+    STALE_IN_PROGRESS_HOURS,
+    V4SecurityScannerV2,
+)
 from test.fixtures import *
 from util.secscan.v4.api import Non200ResponseException
 
@@ -740,13 +743,10 @@ class TestPerformIndexingCycle:
             },
         }
 
-        with mock.patch.object(
-            type(manifest), "has_been_scanned", new_callable=mock.PropertyMock, return_value=False
-        ):
-            with mock.patch.object(features, "SECURITY_SCANNER_NOTIFY_ON_NEW_INDEX", True):
-                with mock.patch("notifications.spawn_notification") as mock_spawn:
-                    scanner._handle_scan_success(manifest, candidate)
-                    assert mock_spawn.called
+        with mock.patch.object(features, "SECURITY_SCANNER_NOTIFY_ON_NEW_INDEX", True):
+            with mock.patch("notifications.spawn_notification") as mock_spawn:
+                scanner._handle_scan_success(manifest, candidate, True)
+                assert mock_spawn.called
 
     def test_send_notifications_skips_low_severity(self, initialized_db, scanner):
         from data.registry_model.datatypes import Manifest as ManifestDataType
@@ -789,3 +789,143 @@ class TestPerformIndexingCycle:
 
         scanner._secscan_api.vulnerability_report.return_value = None
         scanner._send_vulnerability_notifications(manifest, candidate)
+
+    def test_notifies_on_first_index_only(self, initialized_db, scanner):
+        """
+        Regression test: has_been_scanned checked the ManifestSecurityStatus
+        row's last_indexed *after* the IN_PROGRESS claim had already set it,
+        so notifications never fired for a manifest's first index.
+        """
+        application.config["SECURITY_SCANNER_V4_REINDEX_THRESHOLD"] = 300
+
+        scanner._secscan_api.vulnerability_report.return_value = {
+            "vulnerabilities": {
+                "CVE-2021-12345": {
+                    "id": "CVE-2021-12345",
+                    "description": "test vuln",
+                    "links": "https://example.com",
+                    "severity": "High",
+                    "normalized_severity": "High",
+                    "fixed_in_version": "1.2.3",
+                },
+            },
+        }
+
+        with mock.patch.object(features, "SECURITY_SCANNER_NOTIFY_ON_NEW_INDEX", True):
+            with mock.patch("notifications.spawn_notification") as mock_spawn:
+                # First index: rows start out PENDING (as push creates them).
+                scanner.perform_indexing(batch_size=100)
+                assert mock_spawn.called
+
+                mock_spawn.reset_mock()
+
+                # Reindex the now-COMPLETED rows with a fresh indexer hash: not a
+                # first index, so no notification should fire.
+                ManifestSecurityStatus.update(
+                    last_indexed=datetime.utcnow() - timedelta(seconds=600),
+                ).execute()
+                scanner._secscan_api.state.return_value = {"state": "fresh"}
+
+                scanner.perform_indexing(batch_size=100)
+                assert not mock_spawn.called
+
+    def test_notifies_on_failed_retry_once(self, initialized_db, scanner):
+        """
+        A manifest whose only prior row is FAILED has no prior COMPLETED
+        index, so a successful retry counts as a first index and notifies.
+        """
+        application.config["SECURITY_SCANNER_V4_REINDEX_THRESHOLD"] = 300
+
+        ManifestSecurityStatus.delete().execute()
+        for m in Manifest.select():
+            ManifestSecurityStatus.create(
+                manifest=m,
+                repository=m.repository,
+                error_json={},
+                index_status=IndexStatus.FAILED,
+                indexer_hash="abc",
+                indexer_version=IndexerVersion.V4,
+                last_indexed=datetime.utcnow() - timedelta(seconds=600),
+                metadata_json={},
+            )
+
+        scanner._secscan_api.vulnerability_report.return_value = {
+            "vulnerabilities": {
+                "CVE-2021-12345": {
+                    "id": "CVE-2021-12345",
+                    "description": "test vuln",
+                    "links": "https://example.com",
+                    "severity": "High",
+                    "normalized_severity": "High",
+                    "fixed_in_version": "1.2.3",
+                },
+            },
+        }
+
+        with mock.patch.object(features, "SECURITY_SCANNER_NOTIFY_ON_NEW_INDEX", True):
+            with mock.patch("notifications.spawn_notification") as mock_spawn:
+                scanner.perform_indexing(batch_size=100)
+                assert mock_spawn.called
+
+                mock_spawn.reset_mock()
+
+                # Reindex the now-COMPLETED rows with a fresh indexer hash: not a
+                # first index, so no notification should fire.
+                ManifestSecurityStatus.update(
+                    last_indexed=datetime.utcnow() - timedelta(seconds=600),
+                ).execute()
+                scanner._secscan_api.state.return_value = {"state": "fresh"}
+
+                scanner.perform_indexing(batch_size=100)
+                assert not mock_spawn.called
+
+    def test_notifies_on_stale_in_progress_reclaim_once(self, initialized_db, scanner):
+        """
+        A manifest whose only prior row is a stale IN_PROGRESS claim
+        (abandoned by a dead worker) has no prior COMPLETED index, so
+        reclaiming and completing it counts as a first index and notifies.
+        """
+        application.config["SECURITY_SCANNER_V4_REINDEX_THRESHOLD"] = 300
+
+        ManifestSecurityStatus.delete().execute()
+        for m in Manifest.select():
+            ManifestSecurityStatus.create(
+                manifest=m,
+                repository=m.repository,
+                error_json={},
+                index_status=IndexStatus.IN_PROGRESS,
+                indexer_hash="in_progress",
+                indexer_version=IndexerVersion.V4,
+                last_indexed=datetime.utcnow() - timedelta(hours=STALE_IN_PROGRESS_HOURS + 1),
+                metadata_json={},
+            )
+
+        scanner._secscan_api.vulnerability_report.return_value = {
+            "vulnerabilities": {
+                "CVE-2021-12345": {
+                    "id": "CVE-2021-12345",
+                    "description": "test vuln",
+                    "links": "https://example.com",
+                    "severity": "High",
+                    "normalized_severity": "High",
+                    "fixed_in_version": "1.2.3",
+                },
+            },
+        }
+
+        with mock.patch.object(features, "SECURITY_SCANNER_NOTIFY_ON_NEW_INDEX", True):
+            with mock.patch("notifications.spawn_notification") as mock_spawn:
+                scanner.perform_indexing(batch_size=100)
+                assert mock_spawn.called
+
+                mock_spawn.reset_mock()
+
+                # Reindex the now-COMPLETED rows with a fresh indexer hash: not a
+                # first index, so no notification should fire.
+                ManifestSecurityStatus.update(
+                    last_indexed=datetime.utcnow() - timedelta(seconds=600),
+                ).execute()
+                scanner._secscan_api.state.return_value = {"state": "fresh"}
+
+                scanner.perform_indexing(batch_size=100)
+                assert not mock_spawn.called

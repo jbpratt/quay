@@ -7,7 +7,6 @@ from cachetools.func import lru_cache
 
 from data import model
 from data.database import Manifest as ManifestTable
-from data.database import ManifestSecurityStatus
 from data.database import Tag as TagTable
 from data.database import get_epoch_timestamp_ms
 from data.registry_model.datatype import datatype, optionalinput, requiresinput
@@ -372,22 +371,6 @@ class Manifest(
             return None
 
         return parsed.artifact_type
-
-    @property
-    def has_been_scanned(self):
-        """
-        True if the manifest has been scanned the first time after a push, false otherwise
-        """
-        # a new manifest that has not been scanned yet will not be present in the ManifestSecurityStatus table
-        try:
-            query = ManifestSecurityStatus.get(
-                ManifestSecurityStatus.manifest_id == self.id
-            ).last_indexed
-        except ManifestSecurityStatus.DoesNotExist:
-            return False
-        if query is None:
-            return False
-        return True
 
     @property
     def is_manifest_list(self):

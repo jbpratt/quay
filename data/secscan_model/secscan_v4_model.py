@@ -613,6 +613,19 @@ class V4SecurityScanner(SecurityScannerInterface):
                 )
             )
 
+            # Determine whether this is the manifest's first index before the claim UPDATE
+            # below overwrites index_status (and thus makes it indistinguishable from a
+            # reindex of an already-COMPLETED row). first index = no prior COMPLETED index
+            # (no row, PENDING, FAILED, or stale IN_PROGRESS all qualify).
+            existing_status = (
+                ManifestSecurityStatus.select(ManifestSecurityStatus.index_status)
+                .where(ManifestSecurityStatus.manifest == candidate)
+                .first()
+            )
+            first_index = (
+                existing_status is None or existing_status.index_status != IndexStatus.COMPLETED
+            )
+
             # Atomically claim manifest for indexing by marking as IN_PROGRESS.
             # Only claim if not already IN_PROGRESS to avoid concurrent workers indexing the same manifest.
             # Also allow reclaiming manifests stuck IN_PROGRESS for longer than the stale threshold.
@@ -654,7 +667,7 @@ class V4SecurityScanner(SecurityScannerInterface):
                     continue
 
             try:
-                (report, state) = self._secscan_api.index(manifest, layers)
+                report, state = self._secscan_api.index(manifest, layers)
             except InvalidContentSent as ex:
                 mark_manifest_unsupported(manifest)
                 logger.warning("Failed to perform indexing, invalid content sent")
@@ -709,7 +722,7 @@ class V4SecurityScanner(SecurityScannerInterface):
             if report["state"] == IndexReportState.Index_Finished:
                 index_status = IndexStatus.COMPLETED
                 # record time to get results if manifest has just been uploaded
-                if not manifest.has_been_scanned:
+                if first_index:
                     created_at = manifest.created_at
 
                     if created_at is not None:
