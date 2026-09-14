@@ -58,6 +58,26 @@ To run tests locally:
 - Start the application with `pnpm start`
 - Run the tests with `pnpm run test:e2e`
 
+#### Failure artifacts
+
+On a failed test attempt, in addition to the Playwright trace/screenshot/video,
+the test report gets three more attachments: `server-spans.json` (backend
+spans for the test from Jaeger), `quay-logs.txt` (Quay container logs for the
+test's time window), and `quay-config.json` (the live `/config` snapshot). If
+a collector fails, its reason is recorded in `not-collected.txt` instead.
+Every test also carries a `trace-id` annotation (visible in the HTML report
+and the JSON report's test annotations) — look it up directly in Jaeger's
+trace search.
+
+Env vars (all optional):
+- `JAEGER_QUERY_URL` (default `http://localhost:16686`)
+- `QUAY_LOG_CMD` (default `docker logs`; local podman: `QUAY_LOG_CMD="podman logs"`;
+  the command must accept `--timestamps`, which is appended automatically)
+- `QUAY_LOG_CONTAINER` (default `quay-quay`)
+
+No redaction is applied: CI stacks are throwaway and torn down before the
+report is published.
+
 ## Building for Production
 
 ```bash

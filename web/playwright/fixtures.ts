@@ -41,6 +41,12 @@ import {
 } from './utils/api';
 import {isContainerRuntimeAvailable} from './utils/container';
 import {WebhookReceiver} from './utils/webhook';
+import {
+  attachFailureArtifacts,
+  newTraceContext,
+  shouldCollect,
+  TraceContext,
+} from './utils/failure-artifacts';
 
 // ============================================================================
 // TestApi: Auto-cleanup API client for tests
@@ -1122,6 +1128,14 @@ type TestFixtures = {
 
   // WebhookReceiver that auto-starts and auto-stops per test
   webhook: WebhookReceiver;
+
+  // Per-test W3C trace id/span id, propagated as a `traceparent` header on
+  // browser contexts and API request contexts
+  traceparent: TraceContext;
+
+  // Auto-fixture: attaches Jaeger spans / Quay logs / Quay config to the
+  // test report on failure (runs automatically)
+  _autoFailureArtifacts: void;
 };
 
 /**
@@ -1230,45 +1244,78 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   // Test-scoped fixtures (created fresh for each test)
   // =========================================================================
 
+  // Per-test trace id/span id, minted once and reused by every page/request
+  // fixture below so all backend spans for a test share one trace id. The
+  // trace id is recorded as a test annotation so it lands in the HTML/JSON
+  // report and can be looked up in Jaeger.
+  // eslint-disable-next-line no-empty-pattern
+  traceparent: async ({}, use, testInfo) => {
+    const trace = newTraceContext();
+    testInfo.annotations.push({
+      type: 'trace-id',
+      description: trace.traceId,
+    });
+    await use(trace);
+  },
+
   csrfToken: async ({userContext}, use) => {
     const api = new ApiClient(userContext.request);
     const token = await api.getToken();
     await use(token);
   },
 
-  authenticatedPage: async ({userContext}, use) => {
+  authenticatedPage: async ({userContext, traceparent}, use) => {
     const page = await userContext.newPage();
+    // page-level headers are test-scoped and override the (worker-scoped,
+    // shared) context headers, so this cannot leak into other tests.
+    await page.setExtraHTTPHeaders({traceparent: traceparent.traceparent});
     await use(page);
     await page.close();
   },
 
-  superuserPage: async ({superuserContext}, use) => {
+  superuserPage: async ({superuserContext, traceparent}, use) => {
     const page = await superuserContext.newPage();
+    await page.setExtraHTTPHeaders({traceparent: traceparent.traceparent});
     await use(page);
     await page.close();
   },
 
-  readonlyPage: async ({readonlyContext}, use) => {
+  readonlyPage: async ({readonlyContext, traceparent}, use) => {
     const page = await readonlyContext.newPage();
+    await page.setExtraHTTPHeaders({traceparent: traceparent.traceparent});
     await use(page);
     await page.close();
   },
 
-  unauthenticatedPage: async ({browser}, use) => {
+  unauthenticatedPage: async ({browser, traceparent}, use) => {
     // Create a fresh browser context without any authentication
     const context = await browser.newContext();
     const page = await context.newPage();
+    await page.setExtraHTTPHeaders({traceparent: traceparent.traceparent});
     await use(page);
     await page.close();
     await context.close();
   },
 
-  authenticatedRequest: async ({userContext}, use) => {
+  authenticatedRequest: async ({userContext, traceparent}, use) => {
+    // userContext is worker-scoped and reused across tests in this worker,
+    // but Playwright runs one test at a time per worker, so setting the
+    // header here per test does not race with another test's requests.
+    // Cleared after use so a raw-context consumer in a later test gets no
+    // traceparent instead of this test's.
+    await userContext.setExtraHTTPHeaders({
+      traceparent: traceparent.traceparent,
+    });
     await use(userContext.request);
+    await userContext.setExtraHTTPHeaders({});
   },
 
-  superuserRequest: async ({superuserContext}, use) => {
+  superuserRequest: async ({superuserContext, traceparent}, use) => {
+    await superuserContext.setExtraHTTPHeaders({
+      traceparent: traceparent.traceparent,
+    });
     await use(superuserContext.request);
+    await superuserContext.setExtraHTTPHeaders({});
   },
 
   quayConfig: async ({cachedQuayConfig}, use) => {
@@ -1293,13 +1340,14 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await testApi.cleanup();
   },
 
-  freshUser: async ({superuserApi, playwright}, use) => {
+  freshUser: async ({superuserApi, playwright, traceparent}, use) => {
     const created = await superuserApi.user('iso');
     await superuserApi.raw.updateUserAsSuperuser(created.username, {
       email: created.email,
     });
     const request = await playwright.request.newContext({
       ignoreHTTPSErrors: true,
+      extraHTTPHeaders: {traceparent: traceparent.traceparent},
     });
     const client = new ApiClient(request);
     await client.signIn(created.username, created.password);
@@ -1316,9 +1364,10 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   // API-only fixtures (no browser required)
   // =========================================================================
 
-  adminClient: async ({playwright, cachedQuayConfig}, use) => {
+  adminClient: async ({playwright, cachedQuayConfig, traceparent}, use) => {
     const request = await playwright.request.newContext({
       ignoreHTTPSErrors: true,
+      extraHTTPHeaders: {traceparent: traceparent.traceparent},
     });
     try {
       const client = new RawApiClient(request, API_URL);
@@ -1330,9 +1379,10 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     }
   },
 
-  userClient: async ({playwright, cachedQuayConfig}, use) => {
+  userClient: async ({playwright, cachedQuayConfig, traceparent}, use) => {
     const request = await playwright.request.newContext({
       ignoreHTTPSErrors: true,
+      extraHTTPHeaders: {traceparent: traceparent.traceparent},
     });
     try {
       const client = new RawApiClient(request, API_URL);
@@ -1344,9 +1394,10 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     }
   },
 
-  anonClient: async ({playwright}, use) => {
+  anonClient: async ({playwright, traceparent}, use) => {
     const request = await playwright.request.newContext({
       ignoreHTTPSErrors: true,
+      extraHTTPHeaders: {traceparent: traceparent.traceparent},
     });
     try {
       const client = new RawApiClient(request, API_URL);
@@ -1476,6 +1527,27 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await use(receiver);
     await receiver.stop();
   },
+
+  // =========================================================================
+  // Auto-fixture: attach failure diagnostics
+  // =========================================================================
+
+  /**
+   * On test failure, best-effort attach Jaeger spans for this test's trace
+   * id, Quay container logs for the test window, and the live Quay
+   * /config response. Never throws -- a failed attachment must not mask
+   * the original test failure or fail an otherwise-passing test.
+   */
+  _autoFailureArtifacts: [
+    async ({traceparent}, use, testInfo) => {
+      const testStartedAt = new Date();
+      await use();
+      if (shouldCollect(testInfo.status, testInfo.expectedStatus)) {
+        await attachFailureArtifacts(testInfo, traceparent, testStartedAt);
+      }
+    },
+    {auto: true},
+  ],
 });
 
 // Re-export expect for convenience
