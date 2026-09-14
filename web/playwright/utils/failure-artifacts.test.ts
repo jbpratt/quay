@@ -6,6 +6,7 @@ import {writeFile} from 'fs/promises';
 import {
   attachFailureArtifacts,
   capTail,
+  collectJaegerSpans,
   interleaveTimestampedLines,
   logWindow,
   newTraceContext,
@@ -133,6 +134,94 @@ describe('interleaveTimestampedLines', () => {
   });
 });
 
+describe('collectJaegerSpans', () => {
+  it('returns JAEGER_QUERY_URL unset without calling fetchFn when queryUrl is missing', async () => {
+    const fetchFn = vi.fn();
+    const result = await collectJaegerSpans('abc123', {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn: async () => undefined,
+    });
+    expect(result).toEqual({ok: false, reason: 'JAEGER_QUERY_URL unset'});
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('retries at a fixed cadence until the deadline then reports unreachable', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchFn = vi.fn().mockRejectedValue(new Error('offline'));
+      // Fake timers make Date.now() advance only via vi.runAllTimersAsync(),
+      // so attempts land at exactly 0/20/40/60ms elapsed against a 50ms
+      // deadline regardless of host load: 4 attempts by arithmetic.
+      const resultPromise = collectJaegerSpans('abc123', {
+        queryUrl: 'http://jaeger.example',
+        fetchFn: fetchFn as unknown as typeof fetch,
+        deadlineMs: 50,
+        retryDelayMs: 20,
+      });
+      await vi.runAllTimersAsync();
+      const result = await resultPromise;
+      expect(result.ok).toBe(false);
+      if (result.ok === false) {
+        expect(result.reason).toMatch(/^unreachable: offline$/);
+      }
+      expect(fetchFn.mock.calls.length).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports no spans when every attempt returns an empty trace', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({
+      text: async () => JSON.stringify({data: []}),
+    });
+    const sleepFn = vi.fn().mockResolvedValue(undefined);
+    const result = await collectJaegerSpans('abc123', {
+      queryUrl: 'http://jaeger.example',
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn,
+      deadlineMs: 30,
+      retryDelayMs: 1,
+    });
+    expect(result).toEqual({ok: false, reason: 'no spans for trace abc123'});
+  });
+
+  it('reports malformed response when JSON parsing fails', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({
+      text: async () => 'not json',
+    });
+    const sleepFn = vi.fn().mockResolvedValue(undefined);
+    const result = await collectJaegerSpans('abc123', {
+      queryUrl: 'http://jaeger.example',
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn,
+      deadlineMs: 30,
+      retryDelayMs: 1,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.reason).toMatch(/^malformed response:/);
+    }
+  });
+
+  it('succeeds once a retry returns spans', async () => {
+    const body = JSON.stringify({data: [{spans: [{spanId: '1'}]}]});
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce({text: async () => JSON.stringify({data: []})})
+      .mockResolvedValueOnce({text: async () => body});
+    const sleepFn = vi.fn().mockResolvedValue(undefined);
+    const result = await collectJaegerSpans('abc123', {
+      queryUrl: 'http://jaeger.example',
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn,
+      deadlineMs: 1000,
+      retryDelayMs: 1,
+    });
+    expect(result).toEqual({ok: true, body});
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('attachFailureArtifacts', () => {
   it('attaches not-collected.txt when every collector fails', async () => {
     vi.useFakeTimers();
@@ -169,6 +258,64 @@ describe('attachFailureArtifacts', () => {
       vi.useRealTimers();
       vi.unstubAllGlobals();
       delete process.env.QUAY_LOG_CMD;
+    }
+  });
+
+  it('attaches server-spans.json when Jaeger returns spans', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (String(url).includes('/api/traces/')) {
+          return {
+            text: async () =>
+              JSON.stringify({data: [{spans: [{spanId: '1'}]}]}),
+          } as Response;
+        }
+        throw new Error('offline');
+      }),
+    );
+    const previousJaegerQueryUrl = process.env.JAEGER_QUERY_URL;
+    const previousQuayLogCmd = process.env.QUAY_LOG_CMD;
+    process.env.JAEGER_QUERY_URL = 'http://jaeger.example';
+    process.env.QUAY_LOG_CMD = 'quay-test-cmd-that-does-not-exist';
+
+    try {
+      const attached: string[] = [];
+      const testInfo = {
+        outputPath: (name: string) => `/tmp/${name}`,
+        attach: vi.fn(async (name: string) => {
+          attached.push(name);
+        }),
+      } as unknown as TestInfo;
+
+      const runPromise = attachFailureArtifacts(
+        testInfo,
+        newTraceContext(),
+        new Date(),
+      );
+      await vi.runAllTimersAsync();
+      await runPromise;
+
+      expect(attached).toEqual(['server-spans.json', 'not-collected.txt']);
+
+      const spansCall = vi
+        .mocked(writeFile)
+        .mock.calls.find(([path]) => path === '/tmp/server-spans.json');
+      expect(spansCall?.[1]).toContain('spanId');
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      if (previousQuayLogCmd === undefined) {
+        delete process.env.QUAY_LOG_CMD;
+      } else {
+        process.env.QUAY_LOG_CMD = previousQuayLogCmd;
+      }
+      if (previousJaegerQueryUrl === undefined) {
+        delete process.env.JAEGER_QUERY_URL;
+      } else {
+        process.env.JAEGER_QUERY_URL = previousJaegerQueryUrl;
+      }
     }
   });
 });

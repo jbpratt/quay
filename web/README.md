@@ -63,14 +63,20 @@ To run tests locally:
 On a failed test attempt, in addition to the Playwright trace/screenshot/video,
 the test report gets three more attachments: `server-spans.json` (backend
 spans for the test from Jaeger), `quay-logs.txt` (Quay container logs for the
-test's time window), and `quay-config.json` (the live `/config` snapshot). If
-a collector fails, its reason is recorded in `not-collected.txt` instead.
+test's time window), and `quay-config.json` (the live `/config` snapshot).
 Every test also carries a `trace-id` annotation (visible in the HTML report
 and the JSON report's test annotations) — look it up directly in Jaeger's
 trace search.
 
+Every collector degrades gracefully instead of failing the test: if tracing
+is off, `JAEGER_QUERY_URL` is unset or unreachable, the trace is empty, or a
+collector's reply is malformed, that collector's reason is recorded as a line
+in `not-collected.txt` instead of an attachment. This never fails a test and
+adds at most ~15s, only on failure.
+
 Env vars (all optional):
-- `JAEGER_QUERY_URL` (default `http://localhost:16686`)
+- `JAEGER_QUERY_URL` — must be set for Jaeger span collection; unset skips it
+  gracefully
 - `QUAY_LOG_CMD` (default `docker logs`; local podman: `QUAY_LOG_CMD="podman logs"`;
   the command must accept `--timestamps`, which is appended automatically)
 - `QUAY_LOG_CONTAINER` (default `quay-quay`)

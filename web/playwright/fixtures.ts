@@ -1543,7 +1543,15 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       const testStartedAt = new Date();
       await use();
       if (shouldCollect(testInfo.status, testInfo.expectedStatus)) {
-        await attachFailureArtifacts(testInfo, traceparent, testStartedAt);
+        try {
+          await attachFailureArtifacts(testInfo, traceparent, testStartedAt);
+        } catch (err) {
+          console.log(
+            `[failure-artifacts] trace=${traceparent.traceId} failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
       }
     },
     {auto: true},

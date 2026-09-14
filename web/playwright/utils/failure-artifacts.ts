@@ -12,9 +12,6 @@ import {API_URL} from './config';
 
 const execFileAsync = promisify(execFile);
 
-const JAEGER_QUERY_URL =
-  process.env.JAEGER_QUERY_URL || 'http://localhost:16686';
-
 export interface TraceContext {
   traceId: string;
   spanId: string;
@@ -84,27 +81,72 @@ export function interleaveTimestampedLines(
   return lines.join('\n');
 }
 
-async function fetchJaegerSpans(trace: TraceContext): Promise<string> {
-  const url = `${JAEGER_QUERY_URL}/api/traces/${trace.traceId}`;
-  let lastErr: unknown = new Error('no spans returned');
+export interface CollectJaegerSpansOptions {
+  queryUrl?: string;
+  fetchFn?: typeof fetch;
+  sleepFn?: (ms: number) => Promise<void>;
   // Quay's BatchSpanProcessor exports every 5s, so the retry budget must
   // span comfortably longer than that.
-  for (let attempt = 0; attempt < 4; attempt++) {
-    if (attempt > 0) {
-      await sleep(2000);
-    }
+  deadlineMs?: number;
+  attemptTimeoutMs?: number;
+  retryDelayMs?: number;
+}
+
+export type CollectJaegerSpansResult =
+  | {ok: true; body: string}
+  | {ok: false; reason: string};
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Fetches Jaeger spans for a trace, retrying until deadlineMs elapses. Never throws. */
+export async function collectJaegerSpans(
+  traceId: string,
+  opts: CollectJaegerSpansOptions = {},
+): Promise<CollectJaegerSpansResult> {
+  const {
+    queryUrl,
+    fetchFn = fetch,
+    sleepFn = sleep,
+    deadlineMs = 8000,
+    attemptTimeoutMs = 2000,
+    retryDelayMs = 1000,
+  } = opts;
+
+  if (!queryUrl) {
+    return {ok: false, reason: 'JAEGER_QUERY_URL unset'};
+  }
+
+  const url = `${queryUrl}/api/traces/${traceId}`;
+  const deadline = Date.now() + deadlineMs;
+  let lastReason = `no spans for trace ${traceId}`;
+
+  for (;;) {
     try {
-      const res = await fetch(url, {signal: AbortSignal.timeout(5000)});
+      const res = await fetchFn(url, {
+        signal: AbortSignal.timeout(attemptTimeoutMs),
+      });
       const body = await res.text();
-      const parsed = JSON.parse(body);
-      if (parsed?.data?.[0]?.spans?.length > 0) {
-        return body;
+      try {
+        const parsed = JSON.parse(body);
+        const spans = parsed?.data?.[0]?.spans;
+        if (Array.isArray(spans) && spans.length > 0) {
+          return {ok: true, body};
+        }
+        lastReason = `no spans for trace ${traceId}`;
+      } catch (err) {
+        lastReason = `malformed response: ${errMessage(err)}`;
       }
     } catch (err) {
-      lastErr = err;
+      lastReason = `unreachable: ${errMessage(err)}`;
     }
+
+    if (Date.now() >= deadline) {
+      return {ok: false, reason: lastReason};
+    }
+    await sleepFn(retryDelayMs);
   }
-  throw lastErr;
 }
 
 async function fetchQuayLogs(startedAt: Date, endedAt: Date): Promise<string> {
@@ -145,67 +187,96 @@ async function writeAndAttach(
  * Best-effort attachments for a failed test: Jaeger spans for this test's
  * trace id, Quay container logs for the test window, and the live Quay
  * /config response. Never throws -- attachment failures must not mask the
- * original test failure.
+ * original test failure, and every degraded collector becomes a line in
+ * not-collected.txt instead.
  */
 export async function attachFailureArtifacts(
   testInfo: TestInfo,
   trace: TraceContext,
   startedAt: Date,
 ): Promise<void> {
-  const endedAt = new Date();
-  const collectors: Array<{name: string; run: () => Promise<void>}> = [
-    {
-      name: 'server-spans.json',
-      run: async () =>
-        writeAndAttach(
-          testInfo,
-          'server-spans.json',
-          await fetchJaegerSpans(trace),
-          'application/json',
-        ),
-    },
-    {
-      name: 'quay-logs.txt',
-      run: async () =>
-        writeAndAttach(
-          testInfo,
-          'quay-logs.txt',
-          await fetchQuayLogs(startedAt, endedAt),
-          'text/plain',
-        ),
-    },
-    {
-      name: 'quay-config.json',
-      run: async () =>
-        writeAndAttach(
-          testInfo,
-          'quay-config.json',
-          await fetchQuayConfig(),
-          'application/json',
-        ),
-    },
-  ];
+  try {
+    const endedAt = new Date();
+    const otherCollectors: Array<{name: string; run: () => Promise<void>}> = [
+      {
+        name: 'quay-logs.txt',
+        run: async () =>
+          writeAndAttach(
+            testInfo,
+            'quay-logs.txt',
+            await fetchQuayLogs(startedAt, endedAt),
+            'text/plain',
+          ),
+      },
+      {
+        name: 'quay-config.json',
+        run: async () =>
+          writeAndAttach(
+            testInfo,
+            'quay-config.json',
+            await fetchQuayConfig(),
+            'application/json',
+          ),
+      },
+    ];
 
-  const results = await Promise.allSettled(collectors.map((c) => c.run()));
+    const [spansResult, otherResults] = await Promise.all([
+      collectJaegerSpans(trace.traceId, {
+        queryUrl: process.env.JAEGER_QUERY_URL,
+      }),
+      Promise.allSettled(otherCollectors.map((c) => c.run())),
+    ]);
 
-  const notCollected = results
-    .map((result, i) =>
-      result.status === 'rejected'
-        ? `not collected: ${collectors[i].name}: ${String(result.reason)}`
-        : null,
-    )
-    .filter((line): line is string => line !== null);
+    const attached: string[] = [];
+    const notCollected: Array<{name: string; reason: string}> = [];
 
-  if (notCollected.length > 0) {
-    try {
+    if (spansResult.ok === true) {
       await writeAndAttach(
         testInfo,
-        'not-collected.txt',
-        notCollected.join('\n') + '\n',
-        'text/plain',
+        'server-spans.json',
+        spansResult.body,
+        'application/json',
       );
-    } catch {
-      // best-effort; nothing to fall back to
+      attached.push('server-spans.json');
+    } else {
+      notCollected.push({
+        name: 'server-spans.json',
+        reason: spansResult.reason,
+      });
     }
+
+    otherResults.forEach((result, i) => {
+      const name = otherCollectors[i].name;
+      if (result.status === 'fulfilled') {
+        attached.push(name);
+      } else {
+        notCollected.push({name, reason: String(result.reason)});
+      }
+    });
+
+    if (notCollected.length > 0) {
+      try {
+        const body =
+          notCollected
+            .map((c) => `${c.name}: not collected: ${c.reason}`)
+            .join('\n') + '\n';
+        await writeAndAttach(testInfo, 'not-collected.txt', body, 'text/plain');
+        attached.push('not-collected.txt');
+      } catch {
+        // best-effort; nothing to fall back to
+      }
+    }
+
+    console.log(
+      `[failure-artifacts] trace=${trace.traceId} attached=[${attached.join(
+        ',',
+      )}] not-collected=[${notCollected.map((c) => c.name).join(',')}]`,
+    );
+  } catch (err) {
+    // best-effort diagnostics must never affect the test outcome, but still
+    // leave one line so a debugger knows the machinery ran and failed
+    console.log(
+      `[failure-artifacts] trace=${trace.traceId} failed: ${errMessage(err)}`,
+    );
   }
 }
