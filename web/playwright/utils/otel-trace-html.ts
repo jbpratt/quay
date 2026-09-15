@@ -78,6 +78,16 @@ interface TreeRow {
   serviceName: string;
 }
 
+export interface CoverageSegment {
+  leftPct: number;
+  widthPct: number;
+}
+
+export interface ChildCoverage {
+  fraction: number;
+  segments: CoverageSegment[];
+}
+
 const PALETTE = [
   '#4f8fd6',
   '#d6824f',
@@ -116,6 +126,8 @@ a { color: var(--link); }
 .otel-marker-track { position:relative; height:100%; }
 .otel-marker-line { position:absolute; top:-16px; bottom:0; border-left:1px dashed var(--error); }
 .otel-marker-label { position:absolute; top:-16px; font-size:10px; color:var(--error); white-space:nowrap; transform:translateX(-50%); }
+.otel-bar-segment { position:absolute; top:0; height:100%; border-radius:2px; min-width:1px; }
+.otel-bar-faint { border:1px dashed rgba(127,127,127,0.65); }
 `;
 
 function escapeHtml(value: unknown): string {
@@ -184,28 +196,102 @@ function parseTrace(serverSpansJson: string): ParsedTrace | null {
   return {spans, processes};
 }
 
+/**
+ * Fraction of span's own duration covered by its direct children, with
+ * overlapping/overhanging child intervals merged and clipped to the span's
+ * own [startTime, startTime + duration] so coverage can never exceed 1.
+ */
+function roundPct(value: number): number {
+  return Math.round(value * 10000) / 10000;
+}
+
+export function childCoverage(
+  span: JaegerSpan,
+  children: JaegerSpan[],
+): ChildCoverage {
+  if (
+    !Number.isFinite(span.duration) ||
+    span.duration <= 0 ||
+    children.length === 0
+  ) {
+    return {fraction: 0, segments: []};
+  }
+
+  const spanStart = span.startTime;
+  const spanEnd = span.startTime + span.duration;
+  if (!Number.isFinite(spanStart) || !Number.isFinite(spanEnd)) {
+    return {fraction: 0, segments: []};
+  }
+
+  const clipped = children
+    .filter(
+      (child) =>
+        Number.isFinite(child.startTime) &&
+        Number.isFinite(child.duration) &&
+        Number.isFinite(child.startTime + child.duration),
+    )
+    .map((child): [number, number] => [
+      Math.max(child.startTime, spanStart),
+      Math.min(child.startTime + child.duration, spanEnd),
+    ])
+    .filter(([start, end]) => end > start)
+    .sort((a, b) => a[0] - b[0]);
+
+  const merged: Array<[number, number]> = [];
+  for (const interval of clipped) {
+    const last = merged[merged.length - 1];
+    if (last && interval[0] <= last[1]) {
+      last[1] = Math.max(last[1], interval[1]);
+    } else {
+      merged.push(interval);
+    }
+  }
+
+  const covered = merged.reduce((sum, [start, end]) => sum + (end - start), 0);
+  const fraction = Math.min(covered / span.duration, 1);
+  const segments: CoverageSegment[] = merged.map(([start, end]) => ({
+    leftPct: roundPct(((start - spanStart) / span.duration) * 100),
+    widthPct: roundPct(((end - start) / span.duration) * 100),
+  }));
+
+  return {fraction, segments};
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function buildRows(
   spans: JaegerSpan[],
   processes: Record<string, JaegerProcess>,
-): TreeRow[] {
+): {rows: TreeRow[]; directChildrenOf: Map<string, JaegerSpan[]>} {
   const byId = new Map<string, JaegerSpan>();
   for (const span of spans) {
     byId.set(span.spanID, span);
   }
 
   const childrenOf = new Map<string, JaegerSpan[]>();
+  const directChildrenOf = new Map<string, JaegerSpan[]>();
   const roots: JaegerSpan[] = [];
 
   for (const span of spans) {
     const refs = span.references ?? [];
+    const childOfRef = refs.find((r) => r.refType === 'CHILD_OF');
     const parentRef =
-      refs.find((r) => r.refType === 'CHILD_OF') ??
-      refs.find((r) => r.refType === 'FOLLOWS_FROM');
+      childOfRef ?? refs.find((r) => r.refType === 'FOLLOWS_FROM');
     const parentId = parentRef?.spanID;
     if (parentId && byId.has(parentId)) {
       const list = childrenOf.get(parentId) ?? [];
       list.push(span);
       childrenOf.set(parentId, list);
+      if (childOfRef) {
+        const direct = directChildrenOf.get(parentId) ?? [];
+        direct.push(span);
+        directChildrenOf.set(parentId, direct);
+      }
     } else {
       roots.push(span);
     }
@@ -214,6 +300,7 @@ function buildRows(
   const byStart = (a: JaegerSpan, b: JaegerSpan) => a.startTime - b.startTime;
   roots.sort(byStart);
   childrenOf.forEach((list) => list.sort(byStart));
+  directChildrenOf.forEach((list) => list.sort(byStart));
 
   const rows: TreeRow[] = [];
   const visit = (span: JaegerSpan, depth: number) => {
@@ -227,7 +314,7 @@ function buildRows(
   for (const root of roots) {
     visit(root, 0);
   }
-  return rows;
+  return {rows, directChildrenOf};
 }
 
 function isErrorSpan(span: JaegerSpan): boolean {
@@ -262,7 +349,7 @@ function renderFromParsed(parsed: ParsedTrace | null, meta: TraceMeta): string {
   }
 
   const {spans, processes} = parsed;
-  const rows = buildRows(spans, processes);
+  const {rows, directChildrenOf} = buildRows(spans, processes);
   if (rows.length === 0) {
     return degradedPage(
       traceId,
@@ -293,22 +380,42 @@ function renderFromParsed(parsed: ParsedTrace | null, meta: TraceMeta): string {
       const left = ((span.startTime - traceStart) / total) * 100;
       const width = Math.max((span.duration / total) * 100, 0);
       const error = isErrorSpan(span);
+      const color = colorFor(span.processID);
+      const children = directChildrenOf.get(span.spanID) ?? [];
+
+      let barHtml: string;
+      let trackLabel = '';
+      if (children.length > 0) {
+        const {fraction, segments} = childCoverage(span, children);
+        trackLabel = ` aria-label="${roundPct(
+          fraction * 100,
+        )}% covered by direct child spans"`;
+        const segmentsHtml = segments
+          .map(
+            (seg) =>
+              `<div class="otel-bar-segment" style="left:${seg.leftPct}%;width:${seg.widthPct}%;background:${color}"></div>`,
+          )
+          .join('');
+        barHtml = `<div class="otel-bar otel-bar-faint" style="left:${left}%;width:${width}%;background:${hexToRgba(
+          color,
+          0.35,
+        )}">${segmentsHtml}</div>`;
+      } else {
+        barHtml = `<div class="otel-bar" style="left:${left}%;width:${width}%;background:${color}"></div>`;
+      }
+
       return `<div class="otel-grid-row otel-row${
         error ? ' error' : ''
       }" data-row-index="${rowIndex}" role="button" tabindex="0" aria-expanded="false">
   <div class="otel-name-cell" style="padding-left:${
     depth * 14
   }px" title="${escapeHtml(serviceName)}: ${escapeHtml(span.operationName)}">
-    <span class="otel-swatch" style="background:${colorFor(
-      span.processID,
-    )}"></span>
+    <span class="otel-swatch" style="background:${color}"></span>
     <span class="otel-name">${escapeHtml(span.operationName)}</span>
     ${error ? '<span class="otel-badge">ERROR</span>' : ''}
   </div>
   <div class="otel-duration">${formatMs(span.duration)} ms</div>
-  <div class="otel-track"><div class="otel-bar" style="left:${left}%;width:${width}%;background:${colorFor(
-    span.processID,
-  )}"></div></div>
+  <div class="otel-track"${trackLabel}>${barHtml}</div>
 </div>`;
     })
     .join('\n');
@@ -335,6 +442,7 @@ function renderFromParsed(parsed: ParsedTrace | null, meta: TraceMeta): string {
   )}</code> &middot; ${formatMs(total)} ms &middot; ${
     rows.length
   } spans &middot; services: ${escapeHtml(serviceList)}${jaegerLink}</div>
+  <div class="otel-meta">faint bar = time not covered by direct child spans</div>
 </div>
 <div class="otel-waterfall">
 ${markerHtml}
