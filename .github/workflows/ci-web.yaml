@@ -91,8 +91,15 @@ jobs:
       - name: Run unit tests with coverage
         run: cd web && pnpm run test:coverage
 
+      - name: Install Playwright chromium
+        run: cd web && npx playwright install --with-deps chromium
+
+      - name: Run OTel trace renderer browser regressions
+        run: cd web && npx playwright test --config=playwright.otel-trace.config.ts
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        if: always()
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: web

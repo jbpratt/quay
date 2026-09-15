@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os';
 import {readFile, rm} from 'node:fs/promises';
 import {
   attachOtelTraceHtml,
+  childCoverage,
   renderTraceHtml,
   TraceMeta,
 } from './otel-trace-html';
@@ -19,6 +20,16 @@ function parse(html: string): Document {
   return new DOMParser().parseFromString(html, 'text/html');
 }
 
+function span(startTime: number, duration: number) {
+  return {
+    spanID: `${startTime}-${duration}`,
+    operationName: 'op',
+    startTime,
+    duration,
+    processID: 'p1',
+  };
+}
+
 const baseMeta: TraceMeta = {
   testTitle: 'sample test',
   traceId: '4eea808a18db706c3b3ff9d6e5a68f0b',
@@ -32,6 +43,21 @@ describe('renderTraceHtml', () => {
     expect(rows.length).toBe(7);
     expect(html).toContain('4eea808a18db706c3b3ff9d6e5a68f0b');
     expect(html).toContain('quay');
+  });
+
+  it('shades a parent bar with inner coverage segments and leaves leaves solid', () => {
+    const html = renderTraceHtml(realTrace7Spans, baseMeta);
+    const doc = parse(html);
+    const segments = doc.querySelectorAll('.otel-bar-segment');
+    expect(segments.length).toBeGreaterThanOrEqual(1);
+
+    const leafBar = Array.from(doc.querySelectorAll('.otel-bar')).find(
+      (bar) => !bar.classList.contains('otel-bar-faint'),
+    );
+    expect(leafBar).not.toBeUndefined();
+    expect(leafBar?.querySelector('.otel-bar-segment')).toBeNull();
+
+    expect(html).toContain('time not covered by direct child spans');
   });
 
   it('renders the large synthetic fixture with depth >= 4, one error row, two colours', () => {
@@ -234,6 +260,158 @@ describe('renderTraceHtml', () => {
       row.getAttribute('data-row-index'),
     );
     expect(new Set(indices).size).toBe(2);
+  });
+
+  it('does not treat a FOLLOWS_FROM successor as covering its predecessor', () => {
+    const followsFrom = JSON.stringify({
+      data: [
+        {
+          traceID: 'x',
+          spans: [
+            {
+              spanID: 'parent',
+              operationName: 'parent-op',
+              startTime: 1000,
+              duration: 100,
+              processID: 'p1',
+              references: [],
+            },
+            {
+              spanID: 'successor',
+              operationName: 'successor-op',
+              startTime: 1000,
+              duration: 100,
+              processID: 'p1',
+              references: [{refType: 'FOLLOWS_FROM', spanID: 'parent'}],
+            },
+          ],
+          processes: {p1: {serviceName: 'svc'}},
+        },
+      ],
+    });
+    const html = renderTraceHtml(followsFrom, baseMeta);
+    const doc = parse(html);
+    expect(doc.querySelectorAll('.otel-bar-segment').length).toBe(0);
+    expect(doc.querySelectorAll('.otel-bar-faint').length).toBe(0);
+  });
+
+  it('exposes coverage as an accessible label, not just a color difference', () => {
+    const html = renderTraceHtml(realTrace7Spans, baseMeta);
+    const doc = parse(html);
+    const labeled = doc.querySelector('.otel-track[aria-label*="covered"]');
+    expect(labeled).not.toBeNull();
+  });
+
+  it('ignores a raw infinite child duration in the public render instead of showing false coverage', () => {
+    // 1e400 overflows to Infinity when JSON.parse evaluates the number
+    // literal; JSON has no literal token for Infinity itself.
+    const malformed =
+      '{"data":[{"traceID":"x","spans":[' +
+      '{"spanID":"parent","operationName":"parent-op","startTime":100,"duration":100,"processID":"p1","references":[]},' +
+      '{"spanID":"child","operationName":"child-op","startTime":125,"duration":1e400,"processID":"p1","references":[{"refType":"CHILD_OF","spanID":"parent"}]}' +
+      '],"processes":{"p1":{"serviceName":"svc"}}}]}';
+    const html = renderTraceHtml(malformed, baseMeta);
+    const doc = parse(html);
+    const track = doc.querySelector('.otel-track[aria-label*="covered"]');
+    expect(track?.getAttribute('aria-label')).toBe(
+      '0% covered by direct child spans',
+    );
+    expect(doc.querySelectorAll('.otel-bar-segment').length).toBe(0);
+  });
+});
+
+describe('childCoverage', () => {
+  it('returns 0 for a span with no children', () => {
+    expect(childCoverage(span(0, 100), [])).toEqual({
+      fraction: 0,
+      segments: [],
+    });
+  });
+
+  it('returns the duration ratio for one child fully inside the parent', () => {
+    const result = childCoverage(span(0, 100), [span(10, 25)]);
+    expect(result.fraction).toBeCloseTo(0.25);
+    expect(result.segments).toEqual([{leftPct: 10, widthPct: 25}]);
+  });
+
+  it('merges two overlapping children instead of summing their durations', () => {
+    const result = childCoverage(span(0, 100), [
+      span(10, 30), // covers [10, 40]
+      span(20, 30), // covers [20, 50], overlaps the first
+    ]);
+    // merged coverage is [10, 50] = 40, not the summed 60
+    expect(result.fraction).toBeCloseTo(0.4);
+    expect(result.segments).toEqual([{leftPct: 10, widthPct: 40}]);
+  });
+
+  it('clips a child overhanging the parent end so fraction stays <= 1', () => {
+    const result = childCoverage(span(0, 100), [span(80, 50)]);
+    expect(result.fraction).toBeCloseTo(0.2);
+    expect(result.fraction).toBeLessThanOrEqual(1);
+    expect(result.segments).toEqual([{leftPct: 80, widthPct: 20}]);
+  });
+
+  it('returns 0 for a span with duration <= 0', () => {
+    expect(childCoverage(span(0, 0), [span(0, 10)])).toEqual({
+      fraction: 0,
+      segments: [],
+    });
+  });
+
+  it('returns 0 instead of Infinity when start + duration overflows to a nonfinite value', () => {
+    const result = childCoverage(span(1e308, 1e308), [span(1e308, 10)]);
+    expect(result).toEqual({fraction: 0, segments: []});
+  });
+
+  it('ignores a child with a raw infinite duration instead of clipping it into false coverage', () => {
+    // Without pre-clip validation, Math.min(125 + Infinity, 200) clips to
+    // 200, reporting 75% coverage from a single malformed child.
+    const result = childCoverage(span(100, 100), [span(125, Infinity)]);
+    expect(result).toEqual({fraction: 0, segments: []});
+  });
+
+  it('clips a subpixel-wide child to a rounded, non-scientific-notation percentage', () => {
+    const result = childCoverage(span(0, 1_000_000_000), [span(0, 1)]);
+    expect(result.segments).toHaveLength(1);
+    expect(result.segments[0].widthPct).toBe(0);
+    expect(Number.isFinite(result.segments[0].widthPct)).toBe(true);
+  });
+
+  it('computes ~1.3% coverage for the real 7-span fixture root', () => {
+    const parsed = JSON.parse(realTrace7Spans);
+    const spans = parsed.data[0].spans as Array<{
+      spanID: string;
+      startTime: number;
+      duration: number;
+      references?: Array<{refType: string; spanID: string}>;
+    }>;
+    const byId = new Map(spans.map((s) => [s.spanID, s]));
+    const roots = spans.filter((s) => {
+      const parentId = s.references?.find(
+        (r) => r.refType === 'CHILD_OF',
+      )?.spanID;
+      return !parentId || !byId.has(parentId);
+    });
+    const childrenOfRoot = (rootId: string) =>
+      spans.filter((s) =>
+        s.references?.some(
+          (r) => r.refType === 'CHILD_OF' && r.spanID === rootId,
+        ),
+      );
+    const root = roots.find((r) => childrenOfRoot(r.spanID).length > 0);
+    if (!root) {
+      throw new Error('expected a root span with children in the fixture');
+    }
+    const children = childrenOfRoot(root.spanID);
+    expect(children.length).toBeGreaterThan(0);
+
+    const result = childCoverage(
+      root as Parameters<typeof childCoverage>[0],
+      children as Parameters<typeof childCoverage>[1],
+    );
+    // 2917 + 1282 + 1134 + 883 + 1656 = 7872us covered / 585706us duration
+    expect(result.fraction).toBeCloseTo(0.013440190129518905);
+    expect(result.fraction * 100).toBeCloseTo(1.3440190129518905, 1);
   });
 });
 
