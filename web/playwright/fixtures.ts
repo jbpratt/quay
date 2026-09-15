@@ -1600,11 +1600,12 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         try {
           await attachFailureArtifacts(testInfo, traceparent, testStartedAt);
         } catch (err) {
-          console.log(
-            `[failure-artifacts] trace=${traceparent.traceId} failed: ${
+          testInfo.annotations.push({
+            type: 'failure-artifacts',
+            description: `failed: ${
               err instanceof Error ? err.message : String(err)
             }`,
-          );
+          });
         }
       }
     },

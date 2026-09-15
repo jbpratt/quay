@@ -234,11 +234,13 @@ describe('attachFailureArtifacts', () => {
 
     try {
       const attached: string[] = [];
+      const annotations: {type: string; description?: string}[] = [];
       const testInfo = {
         outputPath: (name: string) => `/tmp/${name}`,
         attach: vi.fn(async (name: string) => {
           attached.push(name);
         }),
+        annotations: {push: vi.fn((a) => annotations.push(a))},
       } as unknown as TestInfo;
 
       const runPromise = attachFailureArtifacts(
@@ -258,6 +260,14 @@ describe('attachFailureArtifacts', () => {
       expect(body).toContain('server-spans.json');
       expect(body).toContain('quay-logs.txt');
       expect(body).toContain('quay-config.json');
+
+      expect(annotations).toEqual([
+        {
+          type: 'failure-artifacts',
+          description:
+            'attached=[not-collected.txt] not-collected=[server-spans.json,quay-logs.txt,quay-config.json]',
+        },
+      ]);
     } finally {
       vi.useRealTimers();
       vi.unstubAllGlobals();
@@ -286,11 +296,13 @@ describe('attachFailureArtifacts', () => {
 
     try {
       const attached: string[] = [];
+      const annotations: {type: string; description?: string}[] = [];
       const testInfo = {
         outputPath: (name: string) => `/tmp/${name}`,
         attach: vi.fn(async (name: string) => {
           attached.push(name);
         }),
+        annotations: {push: vi.fn((a) => annotations.push(a))},
       } as unknown as TestInfo;
 
       const runPromise = attachFailureArtifacts(
@@ -307,6 +319,14 @@ describe('attachFailureArtifacts', () => {
         .mocked(writeFile)
         .mock.calls.find(([path]) => path === '/tmp/server-spans.json');
       expect(spansCall?.[1]).toContain('spanId');
+
+      expect(annotations).toEqual([
+        {
+          type: 'failure-artifacts',
+          description:
+            'attached=[server-spans.json,not-collected.txt] not-collected=[quay-logs.txt,quay-config.json]',
+        },
+      ]);
     } finally {
       vi.useRealTimers();
       vi.unstubAllGlobals();

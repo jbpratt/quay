@@ -268,16 +268,18 @@ export async function attachFailureArtifacts(
       }
     }
 
-    console.log(
-      `[failure-artifacts] trace=${trace.traceId} attached=[${attached.join(
+    testInfo.annotations.push({
+      type: 'failure-artifacts',
+      description: `attached=[${attached.join(
         ',',
       )}] not-collected=[${notCollected.map((c) => c.name).join(',')}]`,
-    );
+    });
   } catch (err) {
     // best-effort diagnostics must never affect the test outcome, but still
-    // leave one line so a debugger knows the machinery ran and failed
-    console.log(
-      `[failure-artifacts] trace=${trace.traceId} failed: ${errMessage(err)}`,
-    );
+    // leave one annotation so a debugger knows the machinery ran and failed
+    testInfo.annotations.push({
+      type: 'failure-artifacts',
+      description: `failed: ${errMessage(err)}`,
+    });
   }
 }
