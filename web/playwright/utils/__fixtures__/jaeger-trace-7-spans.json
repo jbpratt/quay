@@ -1,0 +1,312 @@
+{
+  "data": [
+    {
+      "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+      "spans": [
+        {
+          "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+          "spanID": "53ad0534310c2629",
+          "operationName": "GET /csrf_token",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+              "spanID": "2513c7a719f44510"
+            }
+          ],
+          "startTime": 1789415699655982,
+          "duration": 2443,
+          "tags": [
+            {"key": "http.flavor", "type": "string", "value": "1.0"},
+            {"key": "http.host", "type": "string", "value": "localhost:8080"},
+            {"key": "http.method", "type": "string", "value": "GET"},
+            {"key": "http.route", "type": "string", "value": "/csrf_token"},
+            {"key": "http.scheme", "type": "string", "value": "http"},
+            {"key": "http.server_name", "type": "string", "value": "localhost"},
+            {"key": "http.status_code", "type": "int64", "value": 200},
+            {"key": "http.target", "type": "string", "value": "/csrf_token"},
+            {
+              "key": "http.user_agent",
+              "type": "string",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.7499.4 Safari/537.36"
+            },
+            {
+              "key": "net.host.name",
+              "type": "string",
+              "value": "localhost:8080"
+            },
+            {"key": "net.host.port", "type": "int64", "value": 8080},
+            {"key": "net.peer.ip", "type": "string", "value": "10.89.2.8"},
+            {
+              "key": "otel.scope.name",
+              "type": "string",
+              "value": "opentelemetry.instrumentation.flask"
+            },
+            {"key": "otel.scope.version", "type": "string", "value": "0.53b1"},
+            {"key": "span.kind", "type": "string", "value": "server"}
+          ],
+          "logs": [],
+          "processID": "p1",
+          "warnings": [
+            "invalid parent span IDs=2513c7a719f44510; skipping clock skew adjustment"
+          ]
+        },
+        {
+          "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+          "spanID": "bb5ff0c32706e77b",
+          "operationName": "POST /api/v1/signin",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+              "spanID": "2513c7a719f44510"
+            }
+          ],
+          "startTime": 1789415699688385,
+          "duration": 585706,
+          "tags": [
+            {"key": "http.flavor", "type": "string", "value": "1.0"},
+            {"key": "http.host", "type": "string", "value": "localhost:8080"},
+            {"key": "http.method", "type": "string", "value": "POST"},
+            {"key": "http.route", "type": "string", "value": "/api/v1/signin"},
+            {"key": "http.scheme", "type": "string", "value": "http"},
+            {"key": "http.server_name", "type": "string", "value": "localhost"},
+            {"key": "http.status_code", "type": "int64", "value": 200},
+            {"key": "http.target", "type": "string", "value": "/api/v1/signin"},
+            {
+              "key": "http.user_agent",
+              "type": "string",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.7499.4 Safari/537.36"
+            },
+            {
+              "key": "net.host.name",
+              "type": "string",
+              "value": "localhost:8080"
+            },
+            {"key": "net.host.port", "type": "int64", "value": 8080},
+            {"key": "net.peer.ip", "type": "string", "value": "10.89.2.8"},
+            {
+              "key": "otel.scope.name",
+              "type": "string",
+              "value": "opentelemetry.instrumentation.flask"
+            },
+            {"key": "otel.scope.version", "type": "string", "value": "0.53b1"},
+            {"key": "span.kind", "type": "string", "value": "server"}
+          ],
+          "logs": [],
+          "processID": "p1",
+          "warnings": [
+            "invalid parent span IDs=2513c7a719f44510; skipping clock skew adjustment"
+          ]
+        },
+        {
+          "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+          "spanID": "6fff88749ff3bbd3",
+          "operationName": "SELECT",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+              "spanID": "bb5ff0c32706e77b"
+            }
+          ],
+          "startTime": 1789415699700588,
+          "duration": 2917,
+          "tags": [
+            {"key": "db.name", "type": "string", "value": "quay"},
+            {
+              "key": "db.statement",
+              "type": "string",
+              "value": "SELECT \"t1\".\"id\", \"t1\".\"uuid\", \"t1\".\"username\", \"t1\".\"password_hash\", \"t1\".\"email\", \"t1\".\"verified\", \"t1\".\"stripe_id\", \"t1\".\"organization\", \"t1\".\"robot\", \"t1\".\"invoice_email\", \"t1\".\"invalid_login_attempts\", \"t1\".\"last_invalid_login\", \"t1\".\"removed_tag_expiration_s\", \"t1\".\"enabled\", \"t1\".\"invoice_email_address\", \"t1\".\"given_name\", \"t1\".\"family_name\", \"t1\".\"company\", \"t1\".\"location\", \"t1\".\"maximum_queued_builds_count\", \"t1\".\"creation_date\", \"t1\".\"last_accessed\" FROM \"user\" AS \"t1\" WHERE ((\"t1\".\"username\" = %s) OR ((\"t1\".\"email\" = %s) AND (\"t1\".\"organization\" = %s))) LIMIT %s OFFSET %s"
+            },
+            {"key": "db.system", "type": "string", "value": "postgresql"},
+            {"key": "db.user", "type": "string", "value": "quay"},
+            {"key": "net.peer.name", "type": "string", "value": "quay-db"},
+            {"key": "net.peer.port", "type": "int64", "value": 5432},
+            {
+              "key": "otel.scope.name",
+              "type": "string",
+              "value": "opentelemetry.instrumentation.psycopg2"
+            },
+            {"key": "otel.scope.version", "type": "string", "value": "0.53b1"},
+            {"key": "span.kind", "type": "string", "value": "client"}
+          ],
+          "logs": [],
+          "processID": "p1",
+          "warnings": null
+        },
+        {
+          "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+          "spanID": "7dfffd2e76e27131",
+          "operationName": "SELECT",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+              "spanID": "bb5ff0c32706e77b"
+            }
+          ],
+          "startTime": 1789415700250814,
+          "duration": 1282,
+          "tags": [
+            {"key": "db.name", "type": "string", "value": "quay"},
+            {
+              "key": "db.statement",
+              "type": "string",
+              "value": "SELECT \"t1\".\"id\", \"t1\".\"uuid\", \"t1\".\"username\", \"t1\".\"password_hash\", \"t1\".\"email\", \"t1\".\"verified\", \"t1\".\"stripe_id\", \"t1\".\"organization\", \"t1\".\"robot\", \"t1\".\"invoice_email\", \"t1\".\"invalid_login_attempts\", \"t1\".\"last_invalid_login\", \"t1\".\"removed_tag_expiration_s\", \"t1\".\"enabled\", \"t1\".\"invoice_email_address\", \"t1\".\"given_name\", \"t1\".\"family_name\", \"t1\".\"company\", \"t1\".\"location\", \"t1\".\"maximum_queued_builds_count\", \"t1\".\"creation_date\", \"t1\".\"last_accessed\" FROM \"user\" AS \"t1\" WHERE ((\"t1\".\"uuid\" = %s) AND (\"t1\".\"organization\" = %s)) LIMIT %s OFFSET %s"
+            },
+            {"key": "db.system", "type": "string", "value": "postgresql"},
+            {"key": "db.user", "type": "string", "value": "quay"},
+            {"key": "net.peer.name", "type": "string", "value": "quay-db"},
+            {"key": "net.peer.port", "type": "int64", "value": 5432},
+            {
+              "key": "otel.scope.name",
+              "type": "string",
+              "value": "opentelemetry.instrumentation.psycopg2"
+            },
+            {"key": "otel.scope.version", "type": "string", "value": "0.53b1"},
+            {"key": "span.kind", "type": "string", "value": "client"}
+          ],
+          "logs": [],
+          "processID": "p1",
+          "warnings": null
+        },
+        {
+          "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+          "spanID": "7d0131960dfb0a18",
+          "operationName": "SELECT",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+              "spanID": "bb5ff0c32706e77b"
+            }
+          ],
+          "startTime": 1789415700254429,
+          "duration": 1134,
+          "tags": [
+            {"key": "db.name", "type": "string", "value": "quay"},
+            {
+              "key": "db.statement",
+              "type": "string",
+              "value": "SELECT \"t1\".\"id\", \"t1\".\"uuid\", \"t1\".\"username\", \"t1\".\"password_hash\", \"t1\".\"email\", \"t1\".\"verified\", \"t1\".\"stripe_id\", \"t1\".\"organization\", \"t1\".\"robot\", \"t1\".\"invoice_email\", \"t1\".\"invalid_login_attempts\", \"t1\".\"last_invalid_login\", \"t1\".\"removed_tag_expiration_s\", \"t1\".\"enabled\", \"t1\".\"invoice_email_address\", \"t1\".\"given_name\", \"t1\".\"family_name\", \"t1\".\"company\", \"t1\".\"location\", \"t1\".\"maximum_queued_builds_count\", \"t1\".\"creation_date\", \"t1\".\"last_accessed\" FROM \"user\" AS \"t1\" WHERE ((\"t1\".\"uuid\" = %s) AND (\"t1\".\"organization\" = %s)) LIMIT %s OFFSET %s"
+            },
+            {"key": "db.system", "type": "string", "value": "postgresql"},
+            {"key": "db.user", "type": "string", "value": "quay"},
+            {"key": "net.peer.name", "type": "string", "value": "quay-db"},
+            {"key": "net.peer.port", "type": "int64", "value": 5432},
+            {
+              "key": "otel.scope.name",
+              "type": "string",
+              "value": "opentelemetry.instrumentation.psycopg2"
+            },
+            {"key": "otel.scope.version", "type": "string", "value": "0.53b1"},
+            {"key": "span.kind", "type": "string", "value": "client"}
+          ],
+          "logs": [],
+          "processID": "p1",
+          "warnings": null
+        },
+        {
+          "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+          "spanID": "a5d27bba7bf93190",
+          "operationName": "SELECT",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+              "spanID": "bb5ff0c32706e77b"
+            }
+          ],
+          "startTime": 1789415700258568,
+          "duration": 883,
+          "tags": [
+            {"key": "db.name", "type": "string", "value": "quay"},
+            {
+              "key": "db.statement",
+              "type": "string",
+              "value": "SELECT \"t1\".\"id\", \"t1\".\"uuid\", \"t1\".\"username\", \"t1\".\"password_hash\", \"t1\".\"email\", \"t1\".\"verified\", \"t1\".\"stripe_id\", \"t1\".\"organization\", \"t1\".\"robot\", \"t1\".\"invoice_email\", \"t1\".\"invalid_login_attempts\", \"t1\".\"last_invalid_login\", \"t1\".\"removed_tag_expiration_s\", \"t1\".\"enabled\", \"t1\".\"invoice_email_address\", \"t1\".\"given_name\", \"t1\".\"family_name\", \"t1\".\"company\", \"t1\".\"location\", \"t1\".\"maximum_queued_builds_count\", \"t1\".\"creation_date\", \"t1\".\"last_accessed\" FROM \"user\" AS \"t1\" WHERE (\"t1\".\"username\" = %s) LIMIT %s OFFSET %s"
+            },
+            {"key": "db.system", "type": "string", "value": "postgresql"},
+            {"key": "db.user", "type": "string", "value": "quay"},
+            {"key": "net.peer.name", "type": "string", "value": "quay-db"},
+            {"key": "net.peer.port", "type": "int64", "value": 5432},
+            {
+              "key": "otel.scope.name",
+              "type": "string",
+              "value": "opentelemetry.instrumentation.psycopg2"
+            },
+            {"key": "otel.scope.version", "type": "string", "value": "0.53b1"},
+            {"key": "span.kind", "type": "string", "value": "client"}
+          ],
+          "logs": [],
+          "processID": "p1",
+          "warnings": null
+        },
+        {
+          "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+          "spanID": "a6b2fce02dc0485b",
+          "operationName": "INSERT",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "4eea808a18db706c3b3ff9d6e5a68f0b",
+              "spanID": "bb5ff0c32706e77b"
+            }
+          ],
+          "startTime": 1789415700261346,
+          "duration": 1656,
+          "tags": [
+            {"key": "db.name", "type": "string", "value": "quay"},
+            {
+              "key": "db.statement",
+              "type": "string",
+              "value": "INSERT INTO \"logentry3\" (\"kind_id\", \"account_id\", \"performer_id\", \"repository_id\", \"datetime\", \"ip\", \"metadata_json\") VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING \"logentry3\".\"id\""
+            },
+            {"key": "db.system", "type": "string", "value": "postgresql"},
+            {"key": "db.user", "type": "string", "value": "quay"},
+            {"key": "net.peer.name", "type": "string", "value": "quay-db"},
+            {"key": "net.peer.port", "type": "int64", "value": 5432},
+            {
+              "key": "otel.scope.name",
+              "type": "string",
+              "value": "opentelemetry.instrumentation.psycopg2"
+            },
+            {"key": "otel.scope.version", "type": "string", "value": "0.53b1"},
+            {"key": "span.kind", "type": "string", "value": "client"}
+          ],
+          "logs": [],
+          "processID": "p1",
+          "warnings": null
+        }
+      ],
+      "processes": {
+        "p1": {
+          "serviceName": "quay",
+          "tags": [
+            {
+              "key": "telemetry.sdk.language",
+              "type": "string",
+              "value": "python"
+            },
+            {
+              "key": "telemetry.sdk.name",
+              "type": "string",
+              "value": "opentelemetry"
+            },
+            {
+              "key": "telemetry.sdk.version",
+              "type": "string",
+              "value": "1.32.1"
+            }
+          ]
+        }
+      },
+      "warnings": null
+    }
+  ],
+  "total": 0,
+  "limit": 0,
+  "offset": 0,
+  "errors": null
+}
