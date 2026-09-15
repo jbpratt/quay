@@ -262,6 +262,77 @@ describe('renderTraceHtml', () => {
     expect(new Set(indices).size).toBe(2);
   });
 
+  it('does not explode when a duplicate spanID is referenced as a parent', () => {
+    // Two independent chains of 10 spans each reuse the same spanIDs for
+    // their parent links; each span instance must still be visited once.
+    const makeChain = (prefix: string) => {
+      const spans = [];
+      for (let i = 0; i < 10; i++) {
+        spans.push({
+          spanID: `dup-${i}`,
+          operationName: `${prefix}-${i}`,
+          startTime: 1000 + i * 10,
+          duration: 10,
+          processID: 'p1',
+          references:
+            i === 0 ? [] : [{refType: 'CHILD_OF', spanID: `dup-${i - 1}`}],
+        });
+      }
+      return spans;
+    };
+    const dupTrace = JSON.stringify({
+      data: [
+        {
+          traceID: 'x',
+          spans: [...makeChain('a'), ...makeChain('b')],
+          processes: {p1: {serviceName: 'svc'}},
+        },
+      ],
+    });
+    const html = renderTraceHtml(dupTrace, baseMeta);
+    const doc = parse(html);
+    expect(doc.querySelectorAll('.otel-row').length).toBe(20);
+  });
+
+  it('degrades gracefully when spans form a cycle disconnected from any root', () => {
+    const cyclic = JSON.stringify({
+      data: [
+        {
+          traceID: 'x',
+          spans: [
+            {
+              spanID: 'root',
+              operationName: 'root-op',
+              startTime: 1000,
+              duration: 10,
+              processID: 'p1',
+              references: [],
+            },
+            {
+              spanID: 'a',
+              operationName: 'a-op',
+              startTime: 1000,
+              duration: 10,
+              processID: 'p1',
+              references: [{refType: 'CHILD_OF', spanID: 'b'}],
+            },
+            {
+              spanID: 'b',
+              operationName: 'b-op',
+              startTime: 1000,
+              duration: 10,
+              processID: 'p1',
+              references: [{refType: 'CHILD_OF', spanID: 'a'}],
+            },
+          ],
+          processes: {p1: {serviceName: 'svc'}},
+        },
+      ],
+    });
+    const html = renderTraceHtml(cyclic, baseMeta);
+    expect(html).toContain('no spans captured');
+  });
+
   it('does not treat a FOLLOWS_FROM successor as covering its predecessor', () => {
     const followsFrom = JSON.stringify({
       data: [
@@ -295,6 +366,16 @@ describe('renderTraceHtml', () => {
     expect(doc.querySelectorAll('.otel-bar-faint').length).toBe(0);
   });
 
+  it('does not pollute Object.prototype via a __proto__ process key', () => {
+    // Built as raw JSON text: a JS object literal's `__proto__: ...` key
+    // sets the prototype instead of creating an own property, so
+    // JSON.stringify would silently drop it before it reached our parser.
+    const poisoned = `{"data":[{"traceID":"x","spans":[{"spanID":"s1","operationName":"op","startTime":1000,"duration":10,"processID":"__proto__","references":[]}],"processes":{"__proto__":{"serviceName":"proto-svc"}}}]}`;
+    const html = renderTraceHtml(poisoned, baseMeta);
+    expect(({} as Record<string, unknown>).serviceName).toBeUndefined();
+    expect(html).toContain('proto-svc');
+  });
+
   it('exposes coverage as an accessible label, not just a color difference', () => {
     const html = renderTraceHtml(realTrace7Spans, baseMeta);
     const doc = parse(html);
@@ -317,6 +398,37 @@ describe('renderTraceHtml', () => {
       '0% covered by direct child spans',
     );
     expect(doc.querySelectorAll('.otel-bar-segment').length).toBe(0);
+  });
+
+  it('toggles a details panel on click and via keyboard', () => {
+    const html = renderTraceHtml(realTrace7Spans, baseMeta);
+    const bodyMatch = html.match(/<body>([\s\S]*?)<script>/);
+    const scriptMatch = html.match(/<script>([\s\S]*)<\/script>/);
+    if (!bodyMatch || !scriptMatch) {
+      throw new Error('expected body and script markup in rendered html');
+    }
+    document.body.innerHTML = bodyMatch[1];
+    // eslint-disable-next-line no-new-func -- exercising the inlined script as a browser would
+    new Function(scriptMatch[1])();
+
+    const row = document.querySelector('.otel-row') as HTMLElement;
+    expect(row.getAttribute('aria-expanded')).toBe('false');
+
+    row.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    expect(row.getAttribute('aria-expanded')).toBe('true');
+    expect(
+      document.getElementById('details-0')?.classList.contains('open'),
+    ).toBe(true);
+
+    row.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    expect(row.getAttribute('aria-expanded')).toBe('false');
+
+    row.dispatchEvent(
+      new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}),
+    );
+    expect(row.getAttribute('aria-expanded')).toBe('true');
+
+    document.body.innerHTML = '';
   });
 });
 

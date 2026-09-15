@@ -108,8 +108,11 @@ a { color: var(--link); }
 .otel-header h1 { font-size:15px; margin:0 0 4px; }
 .otel-meta { color:var(--muted); font-size:12px; }
 .otel-meta code { font-family:ui-monospace,monospace; }
-.otel-waterfall { position:relative; margin-top:16px; }
-.otel-grid-row { display:grid; grid-template-columns:260px 70px 1fr; align-items:center; column-gap:8px; }
+/* padding-top (not margin) reserves room for the marker label/line: setting
+   overflow-x without overflow-y still computes overflow-y to auto per spec,
+   so content positioned above the box via a negative top would get clipped. */
+.otel-waterfall { position:relative; padding-top:16px; overflow-x:auto; }
+.otel-grid-row { display:grid; grid-template-columns:260px 70px 1fr; align-items:center; column-gap:8px; min-width:460px; }
 .otel-row { cursor:pointer; padding:2px 0; border-left:3px solid transparent; }
 .otel-row.error { border-left-color:var(--error); }
 .otel-name-cell { display:flex; align-items:center; gap:6px; min-width:0; }
@@ -121,11 +124,13 @@ a { color: var(--link); }
 .otel-bar { position:absolute; top:1px; height:12px; min-width:2px; border-radius:2px; }
 .otel-details { display:none; margin:4px 0 8px 20px; padding:8px; background:var(--panel-bg); border-radius:4px; font-family:ui-monospace,monospace; font-size:12px; white-space:pre-wrap; }
 .otel-details.open { display:block; }
-.otel-marker-overlay { position:absolute; inset:0; pointer-events:none; }
-.otel-marker-overlay > .otel-grid-row { height:100%; }
+.otel-marker-overlay { position:absolute; inset:0; pointer-events:none; z-index:1; }
+.otel-marker-overlay > .otel-grid-row { height:100%; border-left:3px solid transparent; }
 .otel-marker-track { position:relative; height:100%; }
-.otel-marker-line { position:absolute; top:-16px; bottom:0; border-left:1px dashed var(--error); }
-.otel-marker-label { position:absolute; top:-16px; font-size:10px; color:var(--error); white-space:nowrap; transform:translateX(-50%); }
+.otel-marker-line { position:absolute; top:0; bottom:0; border-left:1px dashed var(--error); }
+.otel-marker-label { position:absolute; top:2px; font-size:10px; color:var(--error); white-space:nowrap; transform:translateX(-50%); }
+.otel-marker-label.otel-align-start { transform:translateX(0); }
+.otel-marker-label.otel-align-end { transform:translateX(-100%); }
 .otel-bar-segment { position:absolute; top:0; height:100%; border-radius:2px; min-width:1px; }
 .otel-bar-faint { border:1px dashed rgba(127,127,127,0.65); }
 `;
@@ -178,7 +183,7 @@ function parseTrace(serverSpansJson: string): ParsedTrace | null {
     return null;
   }
   const spans: JaegerSpan[] = [];
-  const processes: Record<string, JaegerProcess> = {};
+  const processes: Record<string, JaegerProcess> = Object.create(null);
   for (const trace of parsed.data) {
     if (!trace || typeof trace !== 'object') {
       continue;
@@ -187,7 +192,9 @@ function parseTrace(serverSpansJson: string): ParsedTrace | null {
       spans.push(...trace.spans);
     }
     if (trace.processes) {
-      Object.assign(processes, trace.processes);
+      for (const id of Object.keys(trace.processes)) {
+        processes[id] = trace.processes[id];
+      }
     }
   }
   if (spans.length === 0) {
@@ -267,14 +274,23 @@ function hexToRgba(hex: string, alpha: number): string {
 function buildRows(
   spans: JaegerSpan[],
   processes: Record<string, JaegerProcess>,
-): {rows: TreeRow[]; directChildrenOf: Map<string, JaegerSpan[]>} {
+): {
+  rows: TreeRow[];
+  directChildrenOf: Map<JaegerSpan, JaegerSpan[]>;
+  complete: boolean;
+} {
+  // First span instance wins parent-resolution ties for a duplicated
+  // spanID; children are keyed by instance below so duplicates can never
+  // share a children list or recurse into each other.
   const byId = new Map<string, JaegerSpan>();
   for (const span of spans) {
-    byId.set(span.spanID, span);
+    if (!byId.has(span.spanID)) {
+      byId.set(span.spanID, span);
+    }
   }
 
-  const childrenOf = new Map<string, JaegerSpan[]>();
-  const directChildrenOf = new Map<string, JaegerSpan[]>();
+  const childrenOf = new Map<JaegerSpan, JaegerSpan[]>();
+  const directChildrenOf = new Map<JaegerSpan, JaegerSpan[]>();
   const roots: JaegerSpan[] = [];
 
   for (const span of spans) {
@@ -282,15 +298,15 @@ function buildRows(
     const childOfRef = refs.find((r) => r.refType === 'CHILD_OF');
     const parentRef =
       childOfRef ?? refs.find((r) => r.refType === 'FOLLOWS_FROM');
-    const parentId = parentRef?.spanID;
-    if (parentId && byId.has(parentId)) {
-      const list = childrenOf.get(parentId) ?? [];
+    const parent = parentRef && byId.get(parentRef.spanID);
+    if (parent && parent !== span) {
+      const list = childrenOf.get(parent) ?? [];
       list.push(span);
-      childrenOf.set(parentId, list);
+      childrenOf.set(parent, list);
       if (childOfRef) {
-        const direct = directChildrenOf.get(parentId) ?? [];
+        const direct = directChildrenOf.get(parent) ?? [];
         direct.push(span);
-        directChildrenOf.set(parentId, direct);
+        directChildrenOf.set(parent, direct);
       }
     } else {
       roots.push(span);
@@ -303,18 +319,23 @@ function buildRows(
   directChildrenOf.forEach((list) => list.sort(byStart));
 
   const rows: TreeRow[] = [];
+  const visited = new Set<JaegerSpan>();
   const visit = (span: JaegerSpan, depth: number) => {
+    if (visited.has(span)) {
+      return;
+    }
+    visited.add(span);
     const serviceName =
       processes[span.processID]?.serviceName ?? span.processID ?? 'unknown';
     rows.push({span, depth, serviceName});
-    for (const child of childrenOf.get(span.spanID) ?? []) {
+    for (const child of childrenOf.get(span) ?? []) {
       visit(child, depth + 1);
     }
   };
   for (const root of roots) {
     visit(root, 0);
   }
-  return {rows, directChildrenOf};
+  return {rows, directChildrenOf, complete: visited.size === spans.length};
 }
 
 function isErrorSpan(span: JaegerSpan): boolean {
@@ -349,11 +370,17 @@ function renderFromParsed(parsed: ParsedTrace | null, meta: TraceMeta): string {
   }
 
   const {spans, processes} = parsed;
-  const {rows, directChildrenOf} = buildRows(spans, processes);
+  const {rows, directChildrenOf, complete} = buildRows(spans, processes);
   if (rows.length === 0) {
     return degradedPage(
       traceId,
       `${spans.length} spans, 0 rows after building tree (check for reference cycles)`,
+    );
+  }
+  if (!complete) {
+    return degradedPage(
+      traceId,
+      `${spans.length} spans, only ${rows.length} rows reachable from roots (check for reference cycles)`,
     );
   }
 
@@ -381,7 +408,7 @@ function renderFromParsed(parsed: ParsedTrace | null, meta: TraceMeta): string {
       const width = Math.max((span.duration / total) * 100, 0);
       const error = isErrorSpan(span);
       const color = colorFor(span.processID);
-      const children = directChildrenOf.get(span.spanID) ?? [];
+      const children = directChildrenOf.get(span) ?? [];
 
       let barHtml: string;
       let trackLabel = '';
@@ -425,7 +452,9 @@ function renderFromParsed(parsed: ParsedTrace | null, meta: TraceMeta): string {
     const failedAtUs = meta.failedAt * 1000;
     if (failedAtUs >= traceStart && failedAtUs <= traceEnd) {
       const pct = ((failedAtUs - traceStart) / total) * 100;
-      markerHtml = `<div class="otel-marker-overlay"><div class="otel-grid-row"><div></div><div></div><div class="otel-marker-track"><div class="otel-marker-line" style="left:${pct}%"></div><div class="otel-marker-label" style="left:${pct}%">test failed</div></div></div></div>`;
+      const alignClass =
+        pct > 92 ? ' otel-align-end' : pct < 8 ? ' otel-align-start' : '';
+      markerHtml = `<div class="otel-marker-overlay"><div class="otel-grid-row"><div></div><div></div><div class="otel-marker-track"><div class="otel-marker-line" style="left:${pct}%"></div><div class="otel-marker-label${alignClass}" style="left:${pct}%">test failed</div></div></div></div>`;
     }
   }
 
@@ -461,8 +490,14 @@ ${rowsHtml}
     })),
     processes,
   };
+  // Embedded via JSON.parse of a string literal, not as a bare object
+  // literal: a raw `{"__proto__": ...}` literal sets the prototype instead
+  // of an own property, which corrupts the null-prototype process map.
+  const dataForScriptLiteral = escapeScript(
+    JSON.stringify(JSON.stringify(dataForScript)),
+  );
   const scriptSrc = `
-const OTEL_TRACE_DATA = ${escapeScript(JSON.stringify(dataForScript))};
+const OTEL_TRACE_DATA = JSON.parse(${dataForScriptLiteral});
 function otelFieldsToText(fields) {
   return (fields || []).map(function (f) { return f.key + '=' + JSON.stringify(f.value); }).join(', ');
 }
