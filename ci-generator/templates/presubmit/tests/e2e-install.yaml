@@ -6,12 +6,27 @@ tests:
     env:
       PLAYWRIGHT_GREP_INVERT: '{{ d.playwright_grep_invert }}|image build context carries the baked classifier artifact path|Nginx 502 error page when backend is unreachable'
       PLAYWRIGHT_USE_IMAGE_TESTS: "true"
+      QUAY_EXTRA_CONFIG: |
+        LOG_ARCHIVE_LOCATION: default
+        ACTION_LOG_ARCHIVE_LOCATION: default
+        FEATURE_MAILING: true
+        MAIL_SERVER: mailpit.quay-enterprise.svc.cluster.local
+        MAIL_PORT: 1025
+        MAIL_USE_TLS: false
+        MAIL_USE_AUTH: false
+        MAIL_DEFAULT_SENDER: quay@quayqe.local
+        FEATURE_OTEL_TRACING: true
+        OTEL_CONFIG:
+          service_name: quay
+          sample_rate: 1.0
+          endpoint: http://jaeger.quay-enterprise.svc.cluster.local:4318/v1/traces
     test:
     - ref: quay-enable-catalogsource
     - ref: quay-provisioning-tls
     - ref: quay-provisioning-builder
     - ref: quay-deploy-mailpit
     - ref: quay-deploy-jaeger
+    - ref: quay-copy-app-config
     - ref: "{{ deploy_ref }}"
     - ref: quay-deploy-custom-image
     - ref: quay-test-e2e

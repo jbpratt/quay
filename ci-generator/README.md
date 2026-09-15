@@ -89,7 +89,23 @@ Each cell is assembled by deep-merge, later layers win. `kind: presubmit` jobs r
 6. Kind settings in `generate.py`: periodic sets `cron` from the tier; presubmit copies `always_run` / `optional` / `run_if_changed` / `skip_if_only_changed` onto the test when set
 7. Branch `env`, then job `env` / `as`
 
-Mappings recurse. Lists of mappings merge by index. Scalar lists replace. Env values replace whole keys. `QUAY_EXTRA_CONFIG` lives once, in `templates/tests/e2e-install.yaml`, and is shared by every branch and kind; unknown feature flags are treated as no-ops on older Quay releases. `templates/presubmit/tests/e2e-install.yaml` layers only the presubmit-specific delta (image-test dependencies/env and the extra `quay-deploy-custom-image` step) on top of it. Each cell's own rendered config must contain exactly one test; cells sharing a filename are grouped afterward (see above).
+Mappings recurse. Lists of mappings merge by index. Scalar lists replace. Env values replace whole keys. `QUAY_EXTRA_CONFIG` is defined in `templates/tests/e2e-install.yaml` and shared by every branch and kind; unknown feature flags are treated as no-ops on older Quay releases. `templates/presubmit/tests/e2e-install.yaml` layers the presubmit-specific delta on top of it (image-test dependencies/env, the extra `quay-deploy-custom-image` step, and an infrastructure-only `QUAY_EXTRA_CONFIG` that replaces the periodic one for every presubmit cell; see "Application config baseline" below). Each cell's own rendered config must contain exactly one test; cells sharing a filename are grouped afterward (see above).
+
+## Application config baseline
+
+`config/config.yaml` is a plain (non-templated) Quay application config: `FEATURE_*` flags, auth, quota, UI, expiration, and session-timeout settings, plus non-secret user lists. It is not read by `generate.py` — it is consumed by the release-repo sibling, whose `quay-copy-app-config` step copies it into `SHARED_DIR` before `quay-deploy-aws-s3` runs. The branch under test (`master`) owns this file.
+
+The deploy step assembles the running config by precedence, later wins:
+
+1. `config/config.yaml` (this baseline)
+2. infrastructure-only `QUAY_EXTRA_CONFIG` from the presubmit test env (mail, tracing, log archive locations — never application flags or secrets)
+3. runtime-owned storage/service groups (`USERFILES_*`, `DISTRIBUTED_STORAGE_*`, `PULL_METRICS_REDIS`)
+4. managed-field filtering
+5. the builder overlay
+
+This is a map-merge with list replacement, unlike the legacy `yq` append the deploy script used before.
+
+A Quay PR that changes an application flag edits `config/config.yaml` directly; the master presubmit picks it up automatically via `quay-copy-app-config`. Phase 2: release branches (for example `redhat-3.18`) keep the shared periodic `QUAY_EXTRA_CONFIG` and the embedded fallback config until their periodic job also gains a copy step.
 
 ### How often a job runs (periodic tiers)
 

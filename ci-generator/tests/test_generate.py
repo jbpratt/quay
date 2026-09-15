@@ -6,6 +6,8 @@ from typing import Any
 
 import pytest
 import yaml
+from conftest import master_presubmit_cell
+from conftest import phase0_cell as _phase0_cell
 from generate import (
     GENERATED_HEADER,
     GENERATOR_DIR,
@@ -22,29 +24,12 @@ from generate import (
     main,
     render_template,
 )
-from model import Cell
 
 PHASE0_NAME = "quay-quay-redhat-3.18__aws-ocp422-e2e-install.yaml"
 FIXTURE = Path(__file__).parent / "fixtures" / PHASE0_NAME
 MASTER_NAME = "quay-quay-master.yaml"
 MASTER_FIXTURE = Path(__file__).parent / "fixtures" / MASTER_NAME
 MIXED_DIR = Path(__file__).parent / "fixtures" / "mixed"
-
-
-def _phase0_cell(**kwargs: Any) -> Cell:
-    values: dict[str, Any] = {
-        "org": "quay",
-        "repo": "quay",
-        "branch": "redhat-3.18",
-        "quay_version": "3.18",
-        "ocp_version": "4.22",
-        "cloud": "aws",
-        "test": "e2e-install",
-        "tier": "daily",
-        "source": "nightly",
-    }
-    values.update(kwargs)
-    return Cell(**values)
 
 
 def test_expand_matrix_cells() -> None:
@@ -129,14 +114,7 @@ def test_e2e_install_template_inverts_full_default_filter() -> None:
 
 
 def test_presubmit_test_layer_inherits_periodic_defaults() -> None:
-    presubmit_cell = _phase0_cell(
-        branch="master",
-        quay_version=None,
-        kind="presubmit",
-        tier=None,
-        always_run=False,
-        optional=True,
-    )
+    presubmit_cell = master_presubmit_cell()
     periodic_cell = _phase0_cell()
     presubmit_config = build_config(presubmit_cell, GENERATOR_DIR / "templates")
     periodic_config = build_config(periodic_cell, GENERATOR_DIR / "templates")
@@ -147,7 +125,9 @@ def test_presubmit_test_layer_inherits_periodic_defaults() -> None:
         periodic_env["PLAYWRIGHT_GREP_INVERT"]
         + "|image build context carries the baked classifier artifact path|Nginx 502 error page when backend is unreachable"
     )
-    assert presubmit_env["QUAY_EXTRA_CONFIG"] == periodic_env["QUAY_EXTRA_CONFIG"]
+    assert presubmit_env["QUAY_EXTRA_CONFIG"] != periodic_env["QUAY_EXTRA_CONFIG"]
+    assert "FEATURE_OTEL_TRACING: true" in presubmit_env["QUAY_EXTRA_CONFIG"]
+    assert "FEATURE_PROGRAMMATIC_BOOTSTRAP" not in presubmit_env["QUAY_EXTRA_CONFIG"]
 
     assert presubmit_env["PLAYWRIGHT_USE_IMAGE_TESTS"] == "true"
     assert "PLAYWRIGHT_USE_IMAGE_TESTS" not in periodic_env
@@ -158,7 +138,9 @@ def test_presubmit_test_layer_inherits_periodic_defaults() -> None:
 
     presubmit_refs = [step["ref"] for step in presubmit_config["tests"][0]["steps"]["test"]]
     periodic_refs = [step["ref"] for step in periodic_config["tests"][0]["steps"]["test"]]
-    expected_refs = periodic_refs[:-1] + ["quay-deploy-custom-image"] + periodic_refs[-1:]
+    expected_refs = list(periodic_refs)
+    expected_refs.insert(expected_refs.index("quay-deploy-aws-s3"), "quay-copy-app-config")
+    expected_refs.insert(expected_refs.index("quay-test-e2e"), "quay-deploy-custom-image")
     assert presubmit_refs == expected_refs
 
 
