@@ -537,8 +537,13 @@ describe('attachOtelTraceHtml', () => {
       title: 'fake test',
     } as unknown as import('@playwright/test').TestInfo;
 
-    await attachOtelTraceHtml(testInfo, realTrace7Spans, baseMeta);
+    const result = await attachOtelTraceHtml(
+      testInfo,
+      realTrace7Spans,
+      baseMeta,
+    );
 
+    expect(result).toBe(true);
     expect(attach).toHaveBeenCalledWith('otel-trace.html', {
       path: outputFile,
       contentType: 'text/html',
@@ -548,7 +553,7 @@ describe('attachOtelTraceHtml', () => {
     await rm(outputFile, {force: true});
   });
 
-  it('does not throw when attach rejects', async () => {
+  it('returns false without throwing when attach rejects', async () => {
     const outputFile = join(tmpdir(), `otel-trace-reject-${Date.now()}.html`);
     const attach = vi.fn().mockRejectedValue(new Error('attach failed'));
     const testInfo = {
@@ -559,7 +564,28 @@ describe('attachOtelTraceHtml', () => {
 
     await expect(
       attachOtelTraceHtml(testInfo, realTrace7Spans, baseMeta),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
+    await rm(outputFile, {force: true});
+  });
+
+  it('returns true for a degraded (0-span) render, since it still attaches', async () => {
+    const outputFile = join(tmpdir(), `otel-trace-degraded-${Date.now()}.html`);
+    const attach = vi.fn().mockResolvedValue(undefined);
+    const testInfo = {
+      outputPath: () => outputFile,
+      attach,
+      title: 'fake test',
+    } as unknown as import('@playwright/test').TestInfo;
+
+    const result = await attachOtelTraceHtml(testInfo, '{"data":[]}', baseMeta);
+
+    expect(result).toBe(true);
+    expect(attach).toHaveBeenCalledWith('otel-trace.html', {
+      path: outputFile,
+      contentType: 'text/html',
+    });
+    const content = await readFile(outputFile, 'utf-8');
+    expect(content).toContain('no spans captured');
     await rm(outputFile, {force: true});
   });
 });

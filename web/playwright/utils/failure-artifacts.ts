@@ -7,6 +7,7 @@ import {spawn} from 'child_process';
 import {randomBytes} from 'crypto';
 import {writeFile} from 'fs/promises';
 import {TestInfo, TestStatus} from '@playwright/test';
+import {attachOtelTraceHtml} from './otel-trace-html';
 
 export interface TraceContext {
   traceId: string;
@@ -228,9 +229,10 @@ async function writeAndAttach(
 
 /**
  * Best-effort attachments for a failed test: Jaeger spans for this test's
- * trace id and Quay container logs for the test window. Never throws --
- * attachment failures must not mask the original test failure, and every
- * degraded collector becomes a line in not-collected.txt instead.
+ * trace id, Quay container logs for the test window, and an otel-trace.html
+ * waterfall rendered from those spans. Never throws -- attachment failures
+ * must not mask the original test failure, and every degraded collector
+ * becomes a line in not-collected.txt instead.
  */
 export async function attachFailureArtifacts(
   testInfo: TestInfo,
@@ -261,6 +263,7 @@ export async function attachFailureArtifacts(
 
     const attached: string[] = [];
     const notCollected: Array<{name: string; reason: string}> = [];
+    let otelTraceAttached: boolean | null = null;
 
     if (spansResult.ok === true) {
       await writeAndAttach(
@@ -270,6 +273,20 @@ export async function attachFailureArtifacts(
         'application/json',
       );
       attached.push('server-spans.json');
+
+      const jaegerQueryUrl = process.env.JAEGER_QUERY_URL;
+      otelTraceAttached = await attachOtelTraceHtml(
+        testInfo,
+        spansResult.body,
+        {
+          testTitle: testInfo.title,
+          traceId: trace.traceId,
+          jaegerUrl: jaegerQueryUrl
+            ? `${jaegerQueryUrl}/trace/${trace.traceId}`
+            : undefined,
+          failedAt: endedAt.getTime(),
+        },
+      );
     } else {
       notCollected.push({
         name: 'server-spans.json',
@@ -285,6 +302,15 @@ export async function attachFailureArtifacts(
         notCollected.push({name, reason: String(result.reason)});
       }
     });
+
+    if (otelTraceAttached === true) {
+      attached.push('otel-trace.html');
+    } else if (otelTraceAttached === false) {
+      notCollected.push({
+        name: 'otel-trace.html',
+        reason: 'render/attach failed',
+      });
+    }
 
     if (notCollected.length > 0) {
       try {

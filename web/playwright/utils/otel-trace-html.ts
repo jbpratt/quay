@@ -3,11 +3,9 @@ import path from 'node:path';
 import type {TestInfo} from '@playwright/test';
 
 /**
- * Call site (phase 1, web/playwright/utils/failure-artifacts.ts
- * attachFailureArtifacts): after server-spans.json is attached, await
- * attachOtelTraceHtml(testInfo, spansResult.body, {testTitle: testInfo.title,
- * traceId: trace.traceId, jaegerUrl: process.env.JAEGER_QUERY_URL &&
- * `${JAEGER_QUERY_URL}/trace/${traceId}`}).
+ * Called from web/playwright/utils/failure-artifacts.ts
+ * attachFailureArtifacts after server-spans.json is attached, to render and
+ * attach an otel-trace.html waterfall view for the same trace.
  */
 
 export interface TraceMeta {
@@ -577,7 +575,7 @@ export async function attachOtelTraceHtml(
   testInfo: TestInfo,
   serverSpansJson: string,
   meta: TraceMeta,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const parsed = parseTrace(serverSpansJson);
     const html = safeRenderFromParsed(parsed, meta);
@@ -593,11 +591,13 @@ export async function attachOtelTraceHtml(
         parsed ? parsed.spans.length : 0
       }`,
     );
+    return true;
   } catch (err) {
     console.log(
       `[otel-trace-html] degraded: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
+    return false;
   }
 }

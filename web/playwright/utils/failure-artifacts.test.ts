@@ -15,9 +15,14 @@ import {
   newTraceContext,
   shouldCollect,
 } from './failure-artifacts';
+import {attachOtelTraceHtml} from './otel-trace-html';
 
 vi.mock('fs/promises', () => ({
   writeFile: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('./otel-trace-html', () => ({
+  attachOtelTraceHtml: vi.fn().mockResolvedValue(true),
 }));
 
 describe('newTraceContext', () => {
@@ -291,6 +296,138 @@ describe('attachFailureArtifacts', () => {
         throw new Error('offline');
       }),
     );
+    vi.mocked(attachOtelTraceHtml).mockResolvedValueOnce(true);
+    const previousJaegerQueryUrl = process.env.JAEGER_QUERY_URL;
+    const previousQuayLogCmd = process.env.QUAY_LOG_CMD;
+    process.env.JAEGER_QUERY_URL = 'http://jaeger.example';
+    process.env.QUAY_LOG_CMD = 'quay-test-cmd-that-does-not-exist';
+
+    try {
+      const attached: string[] = [];
+      const annotations: {type: string; description?: string}[] = [];
+      const testInfo = {
+        outputPath: (name: string) => `/tmp/${name}`,
+        attach: vi.fn(async (name: string) => {
+          attached.push(name);
+        }),
+        annotations: {push: vi.fn((a) => annotations.push(a))},
+      } as unknown as TestInfo;
+
+      const runPromise = attachFailureArtifacts(
+        testInfo,
+        newTraceContext(),
+        new Date(),
+      );
+      await vi.runAllTimersAsync();
+      await runPromise;
+
+      // attachOtelTraceHtml is mocked at the module boundary (its own
+      // testInfo.attach call is covered by otel-trace-html.test.ts), so it
+      // never calls this test's testInfo.attach mock directly.
+      expect(attached).toEqual(['server-spans.json', 'not-collected.txt']);
+
+      const spansCall = vi
+        .mocked(writeFile)
+        .mock.calls.find(([path]) => path === '/tmp/server-spans.json');
+      expect(spansCall?.[1]).toContain('spanId');
+
+      expect(annotations).toEqual([
+        {
+          type: 'failure-artifacts',
+          description:
+            'attached=[server-spans.json,otel-trace.html,not-collected.txt] not-collected=[quay-logs.txt]',
+        },
+      ]);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      if (previousQuayLogCmd === undefined) {
+        delete process.env.QUAY_LOG_CMD;
+      } else {
+        process.env.QUAY_LOG_CMD = previousQuayLogCmd;
+      }
+      if (previousJaegerQueryUrl === undefined) {
+        delete process.env.JAEGER_QUERY_URL;
+      } else {
+        process.env.JAEGER_QUERY_URL = previousJaegerQueryUrl;
+      }
+    }
+  });
+
+  it('attaches server-spans.json, quay-logs.txt and otel-trace.html together on full success', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (String(url).includes('/api/traces/')) {
+          return {
+            text: async () =>
+              JSON.stringify({data: [{spans: [{spanId: '1'}]}]}),
+          } as Response;
+        }
+        throw new Error('offline');
+      }),
+    );
+    vi.mocked(attachOtelTraceHtml).mockResolvedValueOnce(true);
+    const previousJaegerQueryUrl = process.env.JAEGER_QUERY_URL;
+    const previousQuayLogCmd = process.env.QUAY_LOG_CMD;
+    process.env.JAEGER_QUERY_URL = 'http://jaeger.example';
+    process.env.QUAY_LOG_CMD = '/bin/echo';
+
+    try {
+      const annotations: {type: string; description?: string}[] = [];
+      const testInfo = {
+        outputPath: (name: string) => `/tmp/${name}`,
+        attach: vi.fn(async () => undefined),
+        annotations: {push: vi.fn((a) => annotations.push(a))},
+      } as unknown as TestInfo;
+
+      const runPromise = attachFailureArtifacts(
+        testInfo,
+        newTraceContext(),
+        new Date(),
+      );
+      await vi.runAllTimersAsync();
+      await runPromise;
+
+      expect(annotations).toEqual([
+        {
+          type: 'failure-artifacts',
+          description:
+            'attached=[server-spans.json,quay-logs.txt,otel-trace.html] not-collected=[]',
+        },
+      ]);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      if (previousQuayLogCmd === undefined) {
+        delete process.env.QUAY_LOG_CMD;
+      } else {
+        process.env.QUAY_LOG_CMD = previousQuayLogCmd;
+      }
+      if (previousJaegerQueryUrl === undefined) {
+        delete process.env.JAEGER_QUERY_URL;
+      } else {
+        process.env.JAEGER_QUERY_URL = previousJaegerQueryUrl;
+      }
+    }
+  });
+
+  it('records otel-trace.html as not-collected when attachOtelTraceHtml returns false', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (String(url).includes('/api/traces/')) {
+          return {
+            text: async () =>
+              JSON.stringify({data: [{spans: [{spanId: '1'}]}]}),
+          } as Response;
+        }
+        throw new Error('offline');
+      }),
+    );
+    vi.mocked(attachOtelTraceHtml).mockResolvedValueOnce(false);
     const previousJaegerQueryUrl = process.env.JAEGER_QUERY_URL;
     const previousQuayLogCmd = process.env.QUAY_LOG_CMD;
     process.env.JAEGER_QUERY_URL = 'http://jaeger.example';
@@ -316,17 +453,11 @@ describe('attachFailureArtifacts', () => {
       await runPromise;
 
       expect(attached).toEqual(['server-spans.json', 'not-collected.txt']);
-
-      const spansCall = vi
-        .mocked(writeFile)
-        .mock.calls.find(([path]) => path === '/tmp/server-spans.json');
-      expect(spansCall?.[1]).toContain('spanId');
-
       expect(annotations).toEqual([
         {
           type: 'failure-artifacts',
           description:
-            'attached=[server-spans.json,not-collected.txt] not-collected=[quay-logs.txt]',
+            'attached=[server-spans.json,not-collected.txt] not-collected=[quay-logs.txt,otel-trace.html]',
         },
       ]);
     } finally {
