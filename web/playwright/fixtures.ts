@@ -1461,6 +1461,22 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     }
   },
 
+  // Built-in request context overridden so raw API calls carry the per-test
+  // traceparent (needed for server-span collection on failure); specs must
+  // use this fixture instead of playwright.request.newContext.
+  request: async ({playwright, baseURL, traceparent}, use) => {
+    const request = await playwright.request.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      extraHTTPHeaders: {traceparent: traceparent.traceparent},
+    });
+    try {
+      await use(request);
+    } finally {
+      await request.dispose();
+    }
+  },
+
   // =========================================================================
   // Auto-fixture: Skip tests based on @feature: tags
   // =========================================================================
