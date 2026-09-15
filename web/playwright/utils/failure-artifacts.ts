@@ -120,7 +120,8 @@ export async function collectJaegerSpans(
 
   const url = `${queryUrl}/api/traces/${traceId}`;
   const deadline = Date.now() + deadlineMs;
-  let lastReason = `no spans for trace ${traceId}`;
+  const noSpansReason = `no spans for trace ${traceId} (likely cause: requests made without the per-test traceparent header, e.g. a spec-local request context, are not attributable)`;
+  let lastReason = noSpansReason;
 
   for (;;) {
     try {
@@ -134,7 +135,7 @@ export async function collectJaegerSpans(
         if (Array.isArray(spans) && spans.length > 0) {
           return {ok: true, body};
         }
-        lastReason = `no spans for trace ${traceId}`;
+        lastReason = noSpansReason;
       } catch (err) {
         lastReason = `malformed response: ${errMessage(err)}`;
       }

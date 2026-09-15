@@ -182,7 +182,11 @@ describe('collectJaegerSpans', () => {
       deadlineMs: 30,
       retryDelayMs: 1,
     });
-    expect(result).toEqual({ok: false, reason: 'no spans for trace abc123'});
+    expect(result).toEqual({
+      ok: false,
+      reason:
+        'no spans for trace abc123 (likely cause: requests made without the per-test traceparent header, e.g. a spec-local request context, are not attributable)',
+    });
   });
 
   it('reports malformed response when JSON parsing fails', async () => {
