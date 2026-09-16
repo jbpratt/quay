@@ -74,6 +74,13 @@ test.describe('Theme Switcher', {tag: ['@ui']}, () => {
   test('auto theme respects browser color scheme preference', async ({
     authenticatedPage,
   }) => {
+    // authenticatedPage's context is worker-scoped, so a theme persisted by
+    // the previous test (localStorage persistence) can leak into this one
+    // when both land on the same worker. Reset it before the app boots.
+    await authenticatedPage.addInitScript(() => {
+      localStorage.removeItem('theme-preference');
+    });
+
     // Emulate dark mode preference
     await authenticatedPage.emulateMedia({colorScheme: 'dark'});
     await authenticatedPage.goto('/overview');
