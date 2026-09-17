@@ -172,6 +172,140 @@ PROWJOB_PATH="$WORK_DIR/prowjob.json"
 printf '%s' "$PROWJOB_JSON" >"$PROWJOB_PATH"
 PROWJOB_STATUS="downloaded"
 
+# --- Routing Records: clone-records.json / finished.json ---
+# clone-records.json is ci-operator's log of the sparse source clone(s) it
+# performed; finished.json is the step's overall result. Both feed the
+# provenance fields derived below.
+CLONE_RECORDS_URL="${GCS_BASE}/clone-records.json"
+CLONE_RECORDS_PATH="$WORK_DIR/clone-records.json"
+if curl -sfL "${CURL_TIMEOUT[@]}" "${CURL_MAXSIZE[@]}" "$CLONE_RECORDS_URL" -o "$CLONE_RECORDS_PATH" 2>/dev/null && [ -s "$CLONE_RECORDS_PATH" ] && jq -e . "$CLONE_RECORDS_PATH" >/dev/null 2>&1; then
+  CLONE_RECORDS_STATUS="downloaded"
+  echo "  Downloaded: clone-records.json" >&2
+else
+  rm -f "$CLONE_RECORDS_PATH"
+  CLONE_RECORDS_PATH=""
+  CLONE_RECORDS_STATUS="unavailable"
+  echo "  Not available: clone-records.json" >&2
+fi
+
+FINISHED_URL="${GCS_BASE}/finished.json"
+FINISHED_PATH="$WORK_DIR/finished.json"
+if curl -sfL "${CURL_TIMEOUT[@]}" "${CURL_MAXSIZE[@]}" "$FINISHED_URL" -o "$FINISHED_PATH" 2>/dev/null && [ -s "$FINISHED_PATH" ] && jq -e . "$FINISHED_PATH" >/dev/null 2>&1; then
+  FINISHED_STATUS="downloaded"
+  echo "  Downloaded: finished.json" >&2
+else
+  rm -f "$FINISHED_PATH"
+  FINISHED_PATH=""
+  FINISHED_STATUS="unavailable"
+  echo "  Not available: finished.json" >&2
+fi
+
+# Derive the ci-operator sparse source clone SHA/ref from clone-records.json.
+# The first array element is a placeholder with empty refs and no final_sha
+# and must be skipped; the clone of interest is the last element with a
+# non-empty org/repo. Sets SOURCE_CLONE_SHA(_REASON) and SOURCE_CLONE_REF(_REASON).
+parse_clone_records() {
+  local path="$1"
+  SOURCE_CLONE_SHA=""
+  SOURCE_CLONE_SHA_REASON=""
+  SOURCE_CLONE_REF=""
+  SOURCE_CLONE_REF_REASON=""
+
+  if [ -z "$path" ] || [ ! -s "$path" ]; then
+    SOURCE_CLONE_SHA_REASON="clone-records.json was not downloaded"
+    SOURCE_CLONE_REF_REASON="clone-records.json was not downloaded"
+    return
+  fi
+
+  local entry
+  entry=$(jq -c '[.[] | select((.refs.org // "") != "" and (.refs.repo // "") != "")] | last // empty' "$path" 2>/dev/null)
+  if [ -z "$entry" ] || [ "$entry" = "null" ]; then
+    SOURCE_CLONE_SHA_REASON="clone-records.json has no element with non-empty refs.org and refs.repo"
+    SOURCE_CLONE_REF_REASON="clone-records.json has no element with non-empty refs.org and refs.repo"
+    return
+  fi
+
+  SOURCE_CLONE_SHA=$(printf '%s' "$entry" | jq -r '.final_sha // empty')
+  if [ -z "$SOURCE_CLONE_SHA" ]; then
+    SOURCE_CLONE_SHA_REASON="matched clone-records.json element has no final_sha"
+  fi
+
+  SOURCE_CLONE_REF=$(printf '%s' "$entry" | jq -r '.refs.base_ref // empty')
+  if [ -z "$SOURCE_CLONE_REF" ]; then
+    SOURCE_CLONE_REF_REASON="matched clone-records.json element has no refs.base_ref"
+  fi
+}
+
+# Derive the step's overall result, and a base_ref fallback, from finished.json.
+# Sets JOB_RESULT(_REASON) and FINISHED_REVISION.
+parse_finished() {
+  local path="$1"
+  JOB_RESULT=""
+  JOB_RESULT_REASON=""
+  FINISHED_REVISION=""
+
+  if [ -z "$path" ] || [ ! -s "$path" ]; then
+    JOB_RESULT_REASON="finished.json was not downloaded"
+    return
+  fi
+
+  JOB_RESULT=$(jq -r '.result // empty' "$path" 2>/dev/null)
+  if [ -z "$JOB_RESULT" ]; then
+    JOB_RESULT_REASON="finished.json has no .result field"
+  fi
+
+  FINISHED_REVISION=$(jq -r '.revision // empty' "$path" 2>/dev/null)
+}
+
+# Extract the Playwright suite's actual source SHA from the e2e step's own
+# build log. This is distinct from source_clone_sha (ci-operator's sparse
+# source clone above), which can legitimately differ from the commit
+# Playwright actually ran from. Format (shipped release-side as re-piai):
+#   PLAYWRIGHT_SOURCE_PROVENANCE repo=<repo> ref=<ref> sha=<sha|unknown>
+# Sets PLAYWRIGHT_SHA(_REASON).
+parse_playwright_sha() {
+  local path="$1"
+  PLAYWRIGHT_SHA=""
+  PLAYWRIGHT_SHA_REASON=""
+
+  if [ -z "$path" ] || [ ! -s "$path" ]; then
+    PLAYWRIGHT_SHA_REASON="step build log was not downloaded"
+    return
+  fi
+
+  local line
+  line=$(sed -E 's/\x1b\[[0-9;]*m//g' "$path" | grep -F 'PLAYWRIGHT_SOURCE_PROVENANCE' | tail -1 || true)
+  if [ -z "$line" ]; then
+    PLAYWRIGHT_SHA_REASON="step build log has no PLAYWRIGHT_SOURCE_PROVENANCE line (this CI step predates it)"
+    return
+  fi
+
+  local sha
+  sha=$(printf '%s' "$line" | grep -oP 'PLAYWRIGHT_SOURCE_PROVENANCE\s+repo=\S*\s+ref=\S*\s+sha=\K\S+' || true)
+  if [ -z "$sha" ]; then
+    PLAYWRIGHT_SHA_REASON="PLAYWRIGHT_SOURCE_PROVENANCE line present but repo=/ref=/sha= fields could not be parsed in order"
+    return
+  fi
+  if [ "$sha" = "unknown" ]; then
+    PLAYWRIGHT_SHA_REASON="step printed sha=unknown (archive fallback, no git metadata)"
+    return
+  fi
+
+  PLAYWRIGHT_SHA="$sha"
+}
+
+parse_clone_records "$CLONE_RECORDS_PATH"
+parse_finished "$FINISHED_PATH"
+
+# finished.json .revision is a fallback for the base ref, used whenever
+# clone-records.json could not supply one for any reason.
+if [ -z "$SOURCE_CLONE_REF" ] && [ -n "$FINISHED_REVISION" ]; then
+  SOURCE_CLONE_REF="$FINISHED_REVISION"
+  SOURCE_CLONE_REF_REASON=""
+elif [ -z "$SOURCE_CLONE_REF" ] && [ -z "$SOURCE_CLONE_REF_REASON" ]; then
+  SOURCE_CLONE_REF_REASON="clone-records.json has no refs.base_ref and finished.json has no .revision"
+fi
+
 # --- Routing Records: top-level run build log ---
 # This is the top-level ci-operator log for the whole run, distinct from the
 # step-local build-log.txt fetched below from the e2e step's own artifact
@@ -433,6 +567,8 @@ else
   echo "  Not available: build-log.txt" >&2
 fi
 
+parse_playwright_sha "$STEP_BUILD_LOG_PATH"
+
 # Check for HTML report
 HTML_REPORT_URL="${ARTIFACT_BASE}/index.html"
 if curl -sfL "${CURL_TIMEOUT[@]}" --head "$HTML_REPORT_URL" >/dev/null 2>&1; then
@@ -592,6 +728,20 @@ jq \
   --arg prowjob_url "$PROWJOB_URL" \
   --arg prowjob_path "$PROWJOB_PATH" \
   --arg prowjob_status "$PROWJOB_STATUS" \
+  --arg clone_records_url "$CLONE_RECORDS_URL" \
+  --arg clone_records_path "$CLONE_RECORDS_PATH" \
+  --arg clone_records_status "$CLONE_RECORDS_STATUS" \
+  --arg finished_url "$FINISHED_URL" \
+  --arg finished_path "$FINISHED_PATH" \
+  --arg finished_status "$FINISHED_STATUS" \
+  --arg source_clone_sha "$SOURCE_CLONE_SHA" \
+  --arg source_clone_sha_reason "$SOURCE_CLONE_SHA_REASON" \
+  --arg source_clone_ref "$SOURCE_CLONE_REF" \
+  --arg source_clone_ref_reason "$SOURCE_CLONE_REF_REASON" \
+  --arg playwright_sha "$PLAYWRIGHT_SHA" \
+  --arg playwright_sha_reason "$PLAYWRIGHT_SHA_REASON" \
+  --arg job_result "$JOB_RESULT" \
+  --arg job_result_reason "$JOB_RESULT_REASON" \
   --arg top_level_build_log_url "$TOP_LEVEL_BUILD_LOG_URL" \
   --arg top_level_build_log_path "$TOP_LEVEL_BUILD_LOG_PATH" \
   --arg top_level_build_log_status "$TOP_LEVEL_BUILD_LOG_STATUS" \
@@ -636,6 +786,8 @@ jq \
       top_level_build_log: { source_url: $top_level_build_log_url, local_path: ($top_level_build_log_path | nullify), status: $top_level_build_log_status },
       step_build_log: { source_url: $step_build_log_url, local_path: ($step_build_log_path | nullify), status: $step_build_log_status },
       prowjob: { source_url: $prowjob_url, local_path: ($prowjob_path | nullify), status: $prowjob_status },
+      clone_records: { source_url: $clone_records_url, local_path: ($clone_records_path | nullify), status: $clone_records_status },
+      finished: { source_url: $finished_url, local_path: ($finished_path | nullify), status: $finished_status },
       junit: $junit,
       provenance: {
         source_image_digest: { value: ($source_image_digest | nullify), reason: ($source_image_digest_reason | nullify) },
@@ -643,7 +795,11 @@ jq \
         auth_mode: { value: $auth_mode, reason: $auth_mode_reason },
         actual_workers: { value: $actual_workers, reason: (if $actual_workers == null then "config.projects[].metadata.actualWorkers not present in results.json" else null end) },
         retries: { value: $retries, reason: (if $retries == null then "config.projects[].retries not present in results.json" else null end) },
-        tracing_configuration: { value: $tracing_value, reason: (if $tracing_value == null then "no config.projects[].use.trace value and no trace attachments found in results.json" else null end) }
+        tracing_configuration: { value: $tracing_value, reason: (if $tracing_value == null then "no config.projects[].use.trace value and no trace attachments found in results.json" else null end) },
+        source_clone_sha: { value: ($source_clone_sha | nullify), reason: ($source_clone_sha_reason | nullify) },
+        source_clone_ref: { value: ($source_clone_ref | nullify), reason: ($source_clone_ref_reason | nullify) },
+        playwright_sha: { value: ($playwright_sha | nullify), reason: ($playwright_sha_reason | nullify) },
+        job_result: { value: ($job_result | nullify), reason: ($job_result_reason | nullify) }
       },
       has_container_logs: $has_container_logs,
       has_jaeger_traces: $has_jaeger_traces,

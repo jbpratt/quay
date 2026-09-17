@@ -99,6 +99,10 @@ Key fields:
   one JUnit file. `has_build_log` remains the field the step-local log's presence
   is checked against; `step_build_log` carries the same download alongside its URL
   and status.
+- `clone_records`, `finished` — routing records, same shape as `prowjob`, for the
+  fetched `clone-records.json` (ci-operator's sparse source clone log) and
+  `finished.json` (the step's overall result). Feed the `source_clone_sha`,
+  `source_clone_ref`, and `job_result` provenance fields below.
 - `has_jaeger_traces` — whether `quay-gather-jaeger-traces` uploaded Jaeger
   artifacts for the discovered workflow; downloaded files are under
   `$ARTIFACTS_DIR/jaeger-traces/`
@@ -125,6 +129,23 @@ Key fields:
   - `tracing_configuration` — the configured `use.trace` value when
     `results.json` serializes it, otherwise an inferred note when trace
     attachments are present, otherwise `null`
+  - `source_clone_sha` — ci-operator's sparse source clone SHA, from
+    `clone-records.json`'s last entry with a non-empty `refs.org`/`refs.repo`
+    (its `final_sha`). This is the commit ci-operator checked out to build the
+    Playwright runner image, not necessarily the commit the suite ran from —
+    see `playwright_sha`.
+  - `source_clone_ref` — that same entry's `refs.base_ref`, falling back to
+    `finished.json`'s `.revision`
+  - `playwright_sha` — the commit the Playwright suite actually ran from,
+    parsed from the step build log's `PLAYWRIGHT_SOURCE_PROVENANCE repo= ref=
+    sha=` line (shipped release-side as re-piai). `null` with a reason
+    distinguishing four cases: the step log was not downloaded, the log has
+    no `PLAYWRIGHT_SOURCE_PROVENANCE` line (the CI step predates it), the line
+    is present but its `repo=`/`ref=`/`sha=` fields could not be parsed in
+    order, or the step printed `sha=unknown` (archive fallback, no git
+    metadata). Can legitimately differ from `source_clone_sha`.
+  - `job_result` — the step's overall result (`FAILURE`, `SUCCESS`, ...), from
+    `finished.json`'s `.result`
 
 If exit code is 2, the run is still in progress — tell the user to wait.
 
