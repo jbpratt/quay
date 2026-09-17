@@ -569,12 +569,104 @@ fi
 
 parse_playwright_sha "$STEP_BUILD_LOG_PATH"
 
+# Classifies already-read content as "redacted" or "usable" against the CI
+# sensitive-content placeholder (the same text checked for redacted pod logs
+# and attachments above). Kept separate from the network reads below so it
+# can be exercised directly against local bytes without a network run.
+classify_bytes() {
+  if grep -Fqx 'This file contained potentially sensitive information and has been removed.' <<<"$1"; then
+    printf 'redacted'
+  else
+    printf 'usable'
+  fi
+}
+
 # Check for HTML report
 HTML_REPORT_URL="${ARTIFACT_BASE}/index.html"
 if curl -sfL "${CURL_TIMEOUT[@]}" --head "$HTML_REPORT_URL" >/dev/null 2>&1; then
   HAS_HTML_REPORT=true
   echo "  Available: HTML report (index.html)" >&2
 fi
+
+# index.html can itself be the CI redaction placeholder rather than a real
+# report; a HEAD request alone cannot tell the two apart.
+if [ "$HAS_HTML_REPORT" = "true" ]; then
+  HTML_REPORT_HEAD=$(curl -sfL "${CURL_TIMEOUT[@]}" "${CURL_MAXSIZE[@]}" -r 0-255 "$HTML_REPORT_URL" 2>/dev/null || true)
+  if [ "$(classify_bytes "$HTML_REPORT_HEAD")" = "redacted" ]; then
+    HAS_HTML_REPORT=false
+    echo "  HTML report index.html is the CI redaction placeholder" >&2
+  fi
+fi
+
+# --- Run-level Evidence Gaps ---
+# Redacted or missing run-level artifacts that would otherwise look like
+# silently absent evidence, distinct from the per-attachment statuses above
+# (which cover individual test attachments, not run-level sources): the
+# must-gather tarball, and the HTML report's data blobs.
+
+# Reads only the first 256 bytes of a GCS object via a curl range request and
+# classifies it -- an intact trace/report blob can be megabytes and there can
+# be many, so this never downloads one in full just to classify it. A HEAD
+# check first distinguishes an object that was never produced (workflow step
+# didn't run) from one that exists but couldn't be read.
+classify_object_head() {
+  local url="$1"
+  local http_code
+  http_code=$(curl -sL "${CURL_TIMEOUT[@]}" --head -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true)
+  if [ "$http_code" = "404" ]; then
+    printf 'not_found'
+    return
+  elif [ "$http_code" != "200" ]; then
+    printf 'missing'
+    return
+  fi
+  local head
+  if ! head=$(curl -sfL "${CURL_TIMEOUT[@]}" "${CURL_MAXSIZE[@]}" -r 0-255 "$url" 2>/dev/null); then
+    printf 'missing'
+    return
+  fi
+  classify_bytes "$head"
+}
+
+EVIDENCE_GAPS=()
+
+MUST_GATHER_URL="${WORKFLOW_BASE}/gather-must-gather/artifacts/must-gather.tar"
+must_gather_status=$(classify_object_head "$MUST_GATHER_URL")
+case "$must_gather_status" in
+  redacted)
+    EVIDENCE_GAPS+=("$(jq -nc --arg url "$MUST_GATHER_URL" '{artifact: "must-gather.tar", source_url: $url, status: "redacted", reason: "CI sensitive-content placeholder"}')")
+    ;;
+  missing)
+    EVIDENCE_GAPS+=("$(jq -nc --arg url "$MUST_GATHER_URL" '{artifact: "must-gather.tar", source_url: $url, status: "missing", reason: "range read failed"}')")
+    ;;
+  not_found)
+    echo "  gather-must-gather step did not run for this job (no must-gather.tar)" >&2
+    ;;
+esac
+
+if list_gcs_keys "${ARTIFACT_BASE}/data/"; then
+  data_blob_count=0
+  for key in "${GCS_LIST_KEYS[@]}"; do
+    if [ "$data_blob_count" -ge "$MAX_DISCOVERED_ARTIFACTS" ]; then
+      echo "  WARNING: skipping additional HTML-report data checks after ${MAX_DISCOVERED_ARTIFACTS}" >&2
+      continue
+    fi
+    data_blob_count=$((data_blob_count + 1))
+    blob_name="data/${key#"${ARTIFACT_BASE}/data/"}"
+    blob_status=$(classify_object_head "$key")
+    if [ "$blob_status" = "redacted" ]; then
+      EVIDENCE_GAPS+=("$(jq -nc --arg name "$blob_name" --arg url "$key" '{artifact: $name, source_url: $url, status: "redacted", reason: "CI sensitive-content placeholder"}')")
+    elif [ "$blob_status" = "missing" ]; then
+      EVIDENCE_GAPS+=("$(jq -nc --arg name "$blob_name" --arg url "$key" '{artifact: $name, source_url: $url, status: "missing", reason: "range read failed"}')")
+    elif [ "$blob_status" = "not_found" ]; then
+      EVIDENCE_GAPS+=("$(jq -nc --arg name "$blob_name" --arg url "$key" '{artifact: $name, source_url: $url, status: "missing", reason: "HEAD probe failed"}')")
+    fi
+  done
+else
+  echo "  Could not list HTML-report data blobs under ${ARTIFACT_BASE}/data/" >&2
+fi
+
+EVIDENCE_GAPS_JSON=$(json_object_array "${EVIDENCE_GAPS[@]}")
 
 # Check for pod-qualified Quay container logs in gather-extra artifacts.
 # GCS has a flat namespace: list the known pods prefix rather than probing a
@@ -750,6 +842,7 @@ jq \
   --arg step_build_log_status "$STEP_BUILD_LOG_STATUS" \
   --argjson junit "$JUNIT_RECORDS_JSON" \
   --argjson attachment_status_map "$ATTACHMENT_STATUS_MAP_JSON" \
+  --argjson evidence_gaps "$EVIDENCE_GAPS_JSON" \
   --arg source_image_digest "$SOURCE_IMAGE_DIGEST" \
   --arg source_image_digest_reason "$SOURCE_IMAGE_DIGEST_REASON" \
   --arg release_config_revision "$RELEASE_CONFIG_REVISION" \
@@ -807,6 +900,7 @@ jq \
       redacted_container_log_files: $redacted_container_log_files,
       jaeger_trace_files: $jaeger_trace_files,
       jaeger_artifact_base_url: $jaeger_artifact_base_url,
+      evidence_gaps: $evidence_gaps,
       global_setup_failure: ($total == 0),
       stats: {
         total: $total,

@@ -146,6 +146,19 @@ Key fields:
     metadata). Can legitimately differ from `source_clone_sha`.
   - `job_result` — the step's overall result (`FAILURE`, `SUCCESS`, ...), from
     `finished.json`'s `.result`
+- `evidence_gaps` — run-level artifacts that exist but are not usable as
+  evidence, in addition to (not instead of) the per-attachment statuses
+  above: the `gather-must-gather` must-gather tarball and the HTML report's
+  `data/` blobs, each classified by reading only its first 256 bytes (never
+  downloaded whole just to classify). Array of `{artifact, source_url,
+  status, reason}`, `status` one of `redacted` (the CI sensitive-content
+  placeholder) or `missing` (range-read failed on an artifact known to
+  exist). A workflow step that never ran for this job (e.g. no
+  `gather-must-gather` step) is not a gap and is omitted, not reported as
+  `missing`. Empty on a fully usable run. `has_html_report` (via
+  `html_report_url`) is also made honest
+  against this same placeholder: an `index.html` that is itself redacted is
+  not reported as an available report.
 
 If exit code is 2, the run is still in progress — tell the user to wait.
 
