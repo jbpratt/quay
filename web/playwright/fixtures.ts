@@ -25,6 +25,7 @@ import {
   expect,
   Page,
   APIRequestContext,
+  APIResponse,
   BrowserContext,
 } from '@playwright/test';
 import {uniqueName} from './utils/test-utils';
@@ -894,6 +895,21 @@ export class TestApi {
       clientId: result.client_id,
       clientSecret: result.client_secret,
     };
+  }
+
+  /**
+   * Track an app token created via another client (e.g. a per-test
+   * RawApiClient) for cleanup. Unlike the other tracked resources, a failed
+   * revoke throws instead of being swallowed, since a silently failed
+   * delete leaves a live token with no other cleanup path to catch it.
+   */
+  appToken(uuid: string, deleteFn: () => Promise<APIResponse>): void {
+    this.cleanupStack.push(async () => {
+      const r = await deleteFn();
+      if (!r.ok()) {
+        throw new Error(`Failed to revoke app token ${uuid}: ${r.status()}`);
+      }
+    });
   }
 
   /**

@@ -1317,19 +1317,24 @@ test.describe(
         expect(r.status()).toBe(200);
       });
 
-      test('can POST own app token (self-action)', async ({readonlyClient}) => {
+      test('can POST own app token (self-action)', async ({
+        readonlyClient,
+        api,
+      }) => {
         const r = await readonlyClient.post('/api/v1/user/apptoken', {
           title: 'ro_test_token',
         });
-        // Creating a token for one's own account is a self-action, not a write
-        expect(r.status()).toBe(200);
         const body = await r.json();
-        // Revoke the token we created, using the same per-test client.
+        // Register revocation as soon as the uuid exists, using the same
+        // per-test client, so a failing assertion below can't skip it.
         if (body.token?.uuid) {
-          await readonlyClient.delete(
-            `/api/v1/user/apptoken/${body.token.uuid}`,
+          const uuid = body.token.uuid;
+          api.appToken(uuid, () =>
+            readonlyClient.delete(`/api/v1/user/apptoken/${uuid}`),
           );
         }
+        // Creating a token for one's own account is a self-action, not a write
+        expect(r.status()).toBe(200);
       });
     });
 
