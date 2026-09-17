@@ -106,9 +106,12 @@ other cheap source exists. Its `output` field is routinely an empty string (0 of
 
 ### A3: read the numbers
 
-- **Flakes with `current_failures: 0`, on a job with `retries: 1`** means every
-  occurrence cleared on retry: a flake profile — a test wrong about its own
-  preconditions — not a broken test or a broken product.
+- **Flakes with `current_failures: 0`, on a job with `retries: 1`** show that
+  every occurrence cleared on retry — nothing more. Recovery on retry is an
+  outcome, not a cause: a test wrong about its own preconditions, a product
+  race, a slow dependency and an environment hiccup all recover on retry the
+  same way. The cause stays open until artifact evidence (Stage B/C) narrows
+  it.
 - Hard failures, or a flake rate that tracks one variant only, point at the
   product or the environment instead. Say which variants flake and at what rate;
   "both platforms flake at comparable rates" is itself a finding (it rules out a
