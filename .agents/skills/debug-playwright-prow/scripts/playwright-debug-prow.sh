@@ -15,6 +15,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=collector-lib.sh
+. "$SCRIPT_DIR/collector-lib.sh"
+
 INPUT="${1:?Usage: playwright-debug-prow.sh <PROW_URL>}"
 
 # --- Network limits ---
@@ -110,24 +114,6 @@ list_gcs_keys() {
   return 1
 }
 
-json_array() {
-  if [ "$#" -eq 0 ]; then
-    printf '[]'
-  else
-    printf '%s\n' "$@" | jq -R . | jq -s .
-  fi
-}
-
-# Like json_array, but each argument is already a JSON value (e.g. an object
-# built with jq -nc), not a raw string to be quoted.
-json_object_array() {
-  if [ "$#" -eq 0 ]; then
-    printf '[]'
-  else
-    printf '%s\n' "$@" | jq -s .
-  fi
-}
-
 echo "Job: $JOB_NAME" >&2
 echo "Build ID: $BUILD_ID" >&2
 echo "GCS base: $GCS_BASE" >&2
@@ -199,100 +185,6 @@ else
   FINISHED_STATUS="unavailable"
   echo "  Not available: finished.json" >&2
 fi
-
-# Derive the ci-operator sparse source clone SHA/ref from clone-records.json.
-# The first array element is a placeholder with empty refs and no final_sha
-# and must be skipped; the clone of interest is the last element with a
-# non-empty org/repo. Sets SOURCE_CLONE_SHA(_REASON) and SOURCE_CLONE_REF(_REASON).
-parse_clone_records() {
-  local path="$1"
-  SOURCE_CLONE_SHA=""
-  SOURCE_CLONE_SHA_REASON=""
-  SOURCE_CLONE_REF=""
-  SOURCE_CLONE_REF_REASON=""
-
-  if [ -z "$path" ] || [ ! -s "$path" ]; then
-    SOURCE_CLONE_SHA_REASON="clone-records.json was not downloaded"
-    SOURCE_CLONE_REF_REASON="clone-records.json was not downloaded"
-    return
-  fi
-
-  local entry
-  entry=$(jq -c '[.[] | select((.refs.org // "") != "" and (.refs.repo // "") != "")] | last // empty' "$path" 2>/dev/null)
-  if [ -z "$entry" ] || [ "$entry" = "null" ]; then
-    SOURCE_CLONE_SHA_REASON="clone-records.json has no element with non-empty refs.org and refs.repo"
-    SOURCE_CLONE_REF_REASON="clone-records.json has no element with non-empty refs.org and refs.repo"
-    return
-  fi
-
-  SOURCE_CLONE_SHA=$(printf '%s' "$entry" | jq -r '.final_sha // empty')
-  if [ -z "$SOURCE_CLONE_SHA" ]; then
-    SOURCE_CLONE_SHA_REASON="matched clone-records.json element has no final_sha"
-  fi
-
-  SOURCE_CLONE_REF=$(printf '%s' "$entry" | jq -r '.refs.base_ref // empty')
-  if [ -z "$SOURCE_CLONE_REF" ]; then
-    SOURCE_CLONE_REF_REASON="matched clone-records.json element has no refs.base_ref"
-  fi
-}
-
-# Derive the step's overall result, and a base_ref fallback, from finished.json.
-# Sets JOB_RESULT(_REASON) and FINISHED_REVISION.
-parse_finished() {
-  local path="$1"
-  JOB_RESULT=""
-  JOB_RESULT_REASON=""
-  FINISHED_REVISION=""
-
-  if [ -z "$path" ] || [ ! -s "$path" ]; then
-    JOB_RESULT_REASON="finished.json was not downloaded"
-    return
-  fi
-
-  JOB_RESULT=$(jq -r '.result // empty' "$path" 2>/dev/null)
-  if [ -z "$JOB_RESULT" ]; then
-    JOB_RESULT_REASON="finished.json has no .result field"
-  fi
-
-  FINISHED_REVISION=$(jq -r '.revision // empty' "$path" 2>/dev/null)
-}
-
-# Extract the Playwright suite's actual source SHA from the e2e step's own
-# build log. This is distinct from source_clone_sha (ci-operator's sparse
-# source clone above), which can legitimately differ from the commit
-# Playwright actually ran from. Format (shipped release-side as re-piai):
-#   PLAYWRIGHT_SOURCE_PROVENANCE repo=<repo> ref=<ref> sha=<sha|unknown>
-# Sets PLAYWRIGHT_SHA(_REASON).
-parse_playwright_sha() {
-  local path="$1"
-  PLAYWRIGHT_SHA=""
-  PLAYWRIGHT_SHA_REASON=""
-
-  if [ -z "$path" ] || [ ! -s "$path" ]; then
-    PLAYWRIGHT_SHA_REASON="step build log was not downloaded"
-    return
-  fi
-
-  local line
-  line=$(sed -E 's/\x1b\[[0-9;]*m//g' "$path" | grep -F 'PLAYWRIGHT_SOURCE_PROVENANCE' | tail -1 || true)
-  if [ -z "$line" ]; then
-    PLAYWRIGHT_SHA_REASON="step build log has no PLAYWRIGHT_SOURCE_PROVENANCE line (this CI step predates it)"
-    return
-  fi
-
-  local sha
-  sha=$(printf '%s' "$line" | grep -oP 'PLAYWRIGHT_SOURCE_PROVENANCE\s+repo=\S*\s+ref=\S*\s+sha=\K\S+' || true)
-  if [ -z "$sha" ]; then
-    PLAYWRIGHT_SHA_REASON="PLAYWRIGHT_SOURCE_PROVENANCE line present but repo=/ref=/sha= fields could not be parsed in order"
-    return
-  fi
-  if [ "$sha" = "unknown" ]; then
-    PLAYWRIGHT_SHA_REASON="step printed sha=unknown (archive fallback, no git metadata)"
-    return
-  fi
-
-  PLAYWRIGHT_SHA="$sha"
-}
 
 parse_clone_records "$CLONE_RECORDS_PATH"
 parse_finished "$FINISHED_PATH"
@@ -569,18 +461,6 @@ fi
 
 parse_playwright_sha "$STEP_BUILD_LOG_PATH"
 
-# Classifies already-read content as "redacted" or "usable" against the CI
-# sensitive-content placeholder (the same text checked for redacted pod logs
-# and attachments above). Kept separate from the network reads below so it
-# can be exercised directly against local bytes without a network run.
-classify_bytes() {
-  if grep -Fqx 'This file contained potentially sensitive information and has been removed.' <<<"$1"; then
-    printf 'redacted'
-  else
-    printf 'usable'
-  fi
-}
-
 # Check for HTML report
 HTML_REPORT_URL="${ARTIFACT_BASE}/index.html"
 if curl -sfL "${CURL_TIMEOUT[@]}" --head "$HTML_REPORT_URL" >/dev/null 2>&1; then
@@ -603,30 +483,6 @@ fi
 # silently absent evidence, distinct from the per-attachment statuses above
 # (which cover individual test attachments, not run-level sources): the
 # must-gather tarball, and the HTML report's data blobs.
-
-# Reads only the first 256 bytes of a GCS object via a curl range request and
-# classifies it -- an intact trace/report blob can be megabytes and there can
-# be many, so this never downloads one in full just to classify it. A HEAD
-# check first distinguishes an object that was never produced (workflow step
-# didn't run) from one that exists but couldn't be read.
-classify_object_head() {
-  local url="$1"
-  local http_code
-  http_code=$(curl -sL "${CURL_TIMEOUT[@]}" --head -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true)
-  if [ "$http_code" = "404" ]; then
-    printf 'not_found'
-    return
-  elif [ "$http_code" != "200" ]; then
-    printf 'missing'
-    return
-  fi
-  local head
-  if ! head=$(curl -sfL "${CURL_TIMEOUT[@]}" "${CURL_MAXSIZE[@]}" -r 0-255 "$url" 2>/dev/null); then
-    printf 'missing'
-    return
-  fi
-  classify_bytes "$head"
-}
 
 EVIDENCE_GAPS=()
 
@@ -669,17 +525,6 @@ fi
 EVIDENCE_GAPS_JSON=$(json_object_array "${EVIDENCE_GAPS[@]}")
 
 # --- Builder Diagnostics ---
-# Bounded preview of a downloaded diagnostics file: at most 40 lines,
-# ANSI-stripped, each truncated to 500 characters -- a preview for triage,
-# never the whole file.
-first_lines_json() {
-  local path="$1"
-  # `|| true`: under pipefail, sed/cut can receive SIGPIPE (exit 141) once
-  # `head -n 40` stops reading a file with more than 40 lines; that is not a
-  # real failure of this pipeline.
-  sed -E 's/\x1b\[[0-9;]*m//g' "$path" | head -n 40 | cut -c1-500 | jq -R . | jq -s . || true
-}
-
 # Lists a GCS prefix and downloads at most MAX_DISCOVERED_ARTIFACTS files
 # from it into dest_dir, returning a JSON array of
 # {name, source_url, local_path, status, first_lines}. An absent prefix
@@ -701,11 +546,7 @@ collect_builder_diagnostics() {
     fi
     count=$((count + 1))
     name="${key#"$prefix"}"
-    # Listed object names are untrusted data (GCS is a flat namespace, so a
-    # key can contain "/" or ".." segments); only a flat, single-component
-    # name is trusted as a filesystem path, matching the allowlist gate the
-    # other download loops in this file use for their derived names.
-    if [ "$name" = "." ] || [ "$name" = ".." ] || [[ "$name" == */* ]] || [[ ! "$name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    if ! is_safe_flat_name "$name"; then
       echo "  WARNING: skipping builder-diagnostics key with unexpected name: ${name}" >&2
       records+=("$(jq -nc --arg name "$name" --arg url "$key" '{name: $name, source_url: $url, local_path: null, status: "unavailable", first_lines: []}')")
       continue

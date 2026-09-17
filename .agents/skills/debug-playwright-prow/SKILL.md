@@ -284,3 +284,11 @@ When diagnosis is complete, remove the temp artifacts directory:
 ```bash
 rm -rf "$ARTIFACTS_DIR"
 ```
+
+## Maintenance
+
+`scripts/playwright-debug-prow.sh` sources its pure parsing/classification
+functions from `scripts/collector-lib.sh`. Run `bash
+tests/run-tests.sh` after editing either file — it pins known collector
+defects (e.g. redacted-content misclassification, false evidence gaps,
+GCS key path traversal) and will catch a regression.
