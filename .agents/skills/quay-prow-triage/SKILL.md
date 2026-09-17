@@ -15,6 +15,7 @@ allowed-tools:
   - Bash(CLOUDSDK_AUTH_DISABLE_CREDENTIALS=1 gcloud storage ls *)
   - Bash(CLOUDSDK_AUTH_DISABLE_CREDENTIALS=1 gcloud storage cp *)
   - Bash(bash .agents/skills/debug-playwright-prow/scripts/playwright-debug-prow.sh *)
+  - Bash(bash .agents/skills/debug-playwright-prow/scripts/jaeger-extract.sh *)
   - Read
   - Grep
 ---
@@ -180,6 +181,13 @@ per-test `not-collected.txt` attachment is present in the artifacts, treat it
 the same as `has_jaeger_traces: false`. Use per-test or bulk spans when the
 collector confirms they were captured. A missing trace is an evidence gap,
 not something that clears the backend. No live cluster access in v1.
+
+Once traces are confirmed available, do not hand-write jq over the chunk
+files — they can total hundreds of megabytes. Use
+`.agents/skills/debug-playwright-prow/scripts/jaeger-extract.sh` to pull the
+spans for one endpoint (see that skill's step 3d for usage); correlate only
+matching request/trace IDs from its output, per the pipeline-first routing
+above.
 
 ## g. Reference map
 

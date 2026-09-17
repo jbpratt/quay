@@ -194,6 +194,23 @@ If `has_jaeger_traces` is true, inspect the valid discovered files named in
 matching request/trace IDs. Otherwise, state that no valid Jaeger trace files
 were found; do not invent trace findings.
 
+Do not hand-write jq over the chunk files — they can total hundreds of
+megabytes. Use the bounded extractor instead:
+
+```bash
+bash .agents/skills/debug-playwright-prow/scripts/jaeger-extract.sh \
+  --dir "$ARTIFACTS_DIR/jaeger-traces" --endpoint '<pattern>'
+```
+
+`--endpoint` is an extended regex matched against a span's `http.target`,
+`http.route`, or `operationName` — the endpoint/request identifiers, never
+time alone. Add `--since`/`--until` (epoch seconds) only to narrow candidates
+within an already-matched endpoint. Output is a JSON array on stdout, one
+record per matching server span, with trace id, span id, HTTP status,
+`http.target`, duration, start time, and a `child_operations` summary (name
+and count, not every child span). See the script header for full flag
+documentation and bounds.
+
 ### 3e: Determine auth phase
 
 Check the test's `tags` for `auth:OIDC` or `auth:LDAP`. Tests without auth-specific
