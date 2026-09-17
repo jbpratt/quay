@@ -111,6 +111,20 @@ Key fields:
 - `global_setup_failure` — if true, no tests ran at all (check `setup_errors` field)
 - `prow_url` — link to the Prow job view
 - `gcsweb_url` — link to browse all artifacts on GCSWeb
+- `provenance` — structured facts about the run, each field an object with `value`
+  and `reason`. `reason` is set when `value` is `null`, meaning the fact could
+  not be derived from an on-disk artifact — except `auth_mode`, a fixed
+  constant whose `reason` always accompanies its non-null `value`:
+  - `source_image_digest` — the `quay-playwright-runner` pipeline image digest,
+    parsed from the top-level build log
+  - `release_config_revision` — the openshift/release config commit, from
+    `prowjob.json`'s `spec.extra_refs` (`org: openshift, repo: release`); usually
+    `null` since most jobs don't carry this ref
+  - `auth_mode` — always `"anonymous"`; the collector never sends credentials
+  - `actual_workers` / `retries` — from `results.json`'s `config.projects[]`
+  - `tracing_configuration` — the configured `use.trace` value when
+    `results.json` serializes it, otherwise an inferred note when trace
+    attachments are present, otherwise `null`
 
 If exit code is 2, the run is still in progress — tell the user to wait.
 

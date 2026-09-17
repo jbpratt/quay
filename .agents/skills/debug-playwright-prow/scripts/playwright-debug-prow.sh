@@ -540,6 +540,33 @@ if [ "$HAS_HTML_REPORT" = "true" ]; then
   HTML_REPORT_GCSWEB="https://gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com/gcs/${ARTIFACT_PATH}/index.html"
 fi
 
+# --- Provenance ---
+# Each field below is derived from an artifact already on disk. A field that
+# cannot be derived that way is left empty (emitted as null downstream) with
+# a reason explaining why, rather than guessed or reconstructed.
+SOURCE_IMAGE_DIGEST=""
+SOURCE_IMAGE_DIGEST_REASON=""
+if [ -n "$TOP_LEVEL_BUILD_LOG_PATH" ] && [ -s "$TOP_LEVEL_BUILD_LOG_PATH" ]; then
+  SOURCE_IMAGE_DIGEST=$(sed -E 's/\x1b\[[0-9;]*m//g' "$TOP_LEVEL_BUILD_LOG_PATH" | grep -oP 'Image \S*playwright\S* created\s+digest=\K\S+' | tail -1 || true)
+  if [ -z "$SOURCE_IMAGE_DIGEST" ]; then
+    SOURCE_IMAGE_DIGEST_REASON="no playwright runner image digest line found in the top-level build log"
+  fi
+else
+  SOURCE_IMAGE_DIGEST_REASON="top-level build log was not downloaded"
+fi
+
+RELEASE_CONFIG_REVISION=$(printf '%s' "$PROWJOB_JSON" | jq -r '(.spec.extra_refs[]? | select(.org == "openshift" and .repo == "release") | .base_sha) // empty')
+RELEASE_CONFIG_REVISION_REASON=""
+if [ -z "$RELEASE_CONFIG_REVISION" ]; then
+  RELEASE_CONFIG_REVISION_REASON="prowjob.json has no openshift/release extra_refs entry with a base_sha for this job"
+fi
+
+# The collector never sends credentials; every GCS request above used the
+# public, unauthenticated API, so this is a fact about the collector's own
+# requests rather than something read out of a downloaded artifact.
+AUTH_MODE="anonymous"
+AUTH_MODE_REASON="collector sends no credentials; all GCS requests use the public unauthenticated API"
+
 # --- Derive Report from results.json ---
 # Everything below is derived from Playwright's JSON reporter. Test status
 # classifies each test: expected (passed), unexpected (failed), flaky, skipped.
@@ -573,6 +600,12 @@ jq \
   --arg step_build_log_status "$STEP_BUILD_LOG_STATUS" \
   --argjson junit "$JUNIT_RECORDS_JSON" \
   --argjson attachment_status_map "$ATTACHMENT_STATUS_MAP_JSON" \
+  --arg source_image_digest "$SOURCE_IMAGE_DIGEST" \
+  --arg source_image_digest_reason "$SOURCE_IMAGE_DIGEST_REASON" \
+  --arg release_config_revision "$RELEASE_CONFIG_REVISION" \
+  --arg release_config_revision_reason "$RELEASE_CONFIG_REVISION_REASON" \
+  --arg auth_mode "$AUTH_MODE" \
+  --arg auth_mode_reason "$AUTH_MODE_REASON" \
   '
   def strip_ansi: if type == "string" then gsub("[[:cntrl:]]\\[[0-9;]*m"; "") else . end;
   def nullify: if . == "" then null else . end;
@@ -580,7 +613,15 @@ jq \
   # URL-building expression duplicated in the candidate-attachments query above; keep byte-identical
   # so attachment_status_map lookups (keyed by this URL) keep resolving.
   def build_attachments: [ .attachments[] | { name, path, url: (if .path then ($artifact_base_url + "/" + (.path | sub(".*/test-results/"; "") | split("/") | map(select(. != "..")) | join("/"))) else null end) } | with_attachment_status ];
-  [.. | objects | select(has("specs")) | .specs[]] as $specs
+  (.config.projects // []) as $projects
+  | ([$projects[]?.metadata.actualWorkers] | map(select(. != null)) | first) as $actual_workers
+  | ([$projects[]?.retries] | map(select(. != null)) | max) as $retries
+  | ([$projects[]?.use.trace] | map(select(. != null)) | first) as $configured_trace
+  | ([.. | objects | select(has("attachments")) | .attachments[]? | select(.name == "trace")] | length) as $trace_attachment_count
+  | (if $configured_trace != null then $configured_trace
+     elif $trace_attachment_count > 0 then "traces captured on failing/retried attempts (inferred from \($trace_attachment_count) trace attachment(s) in results.json; config.projects[].use.trace not serialized)"
+     else null end) as $tracing_value
+  | [.. | objects | select(has("specs")) | .specs[]] as $specs
   | ((.stats.expected + .stats.unexpected + .stats.flaky + .stats.skipped)) as $total
   | {
       build_id: $build_id,
@@ -596,6 +637,14 @@ jq \
       step_build_log: { source_url: $step_build_log_url, local_path: ($step_build_log_path | nullify), status: $step_build_log_status },
       prowjob: { source_url: $prowjob_url, local_path: ($prowjob_path | nullify), status: $prowjob_status },
       junit: $junit,
+      provenance: {
+        source_image_digest: { value: ($source_image_digest | nullify), reason: ($source_image_digest_reason | nullify) },
+        release_config_revision: { value: ($release_config_revision | nullify), reason: ($release_config_revision_reason | nullify) },
+        auth_mode: { value: $auth_mode, reason: $auth_mode_reason },
+        actual_workers: { value: $actual_workers, reason: (if $actual_workers == null then "config.projects[].metadata.actualWorkers not present in results.json" else null end) },
+        retries: { value: $retries, reason: (if $retries == null then "config.projects[].retries not present in results.json" else null end) },
+        tracing_configuration: { value: $tracing_value, reason: (if $tracing_value == null then "no config.projects[].use.trace value and no trace attachments found in results.json" else null end) }
+      },
       has_container_logs: $has_container_logs,
       has_jaeger_traces: $has_jaeger_traces,
       container_log_files: $container_log_files,
