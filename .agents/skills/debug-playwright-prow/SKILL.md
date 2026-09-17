@@ -101,8 +101,9 @@ Key fields:
   and status.
 - `clone_records`, `finished` — routing records, same shape as `prowjob`, for the
   fetched `clone-records.json` (ci-operator's sparse source clone log) and
-  `finished.json` (the step's overall result). Feed the `source_clone_sha`,
-  `source_clone_ref`, and `job_result` provenance fields below.
+  `finished.json` (the build-root Prow job's overall result, not the e2e
+  step's result). Feed the `source_clone_sha`, `source_clone_ref`, and
+  `job_result` provenance fields below.
 - `has_jaeger_traces` — whether `quay-gather-jaeger-traces` uploaded Jaeger
   artifacts for the discovered workflow; downloaded files are under
   `$ARTIFACTS_DIR/jaeger-traces/`
@@ -144,8 +145,9 @@ Key fields:
     is present but its `repo=`/`ref=`/`sha=` fields could not be parsed in
     order, or the step printed `sha=unknown` (archive fallback, no git
     metadata). Can legitimately differ from `source_clone_sha`.
-  - `job_result` — the step's overall result (`FAILURE`, `SUCCESS`, ...), from
-    `finished.json`'s `.result`
+  - `job_result` — the build-root Prow job's overall result (`FAILURE`,
+    `SUCCESS`, ...), not the e2e step's result, from `finished.json`'s
+    `.result`
 - `evidence_gaps` — run-level artifacts that exist but are not usable as
   evidence, in addition to (not instead of) the per-attachment statuses
   above: the `gather-must-gather` must-gather tarball and the HTML report's

@@ -69,8 +69,8 @@ parse_clone_records() {
   fi
 }
 
-# Derive the step's overall result, and a base_ref fallback, from finished.json.
-# Sets JOB_RESULT(_REASON) and FINISHED_REVISION.
+# Derive the build-root Prow job's overall result, and a base_ref fallback,
+# from finished.json. Sets JOB_RESULT(_REASON) and FINISHED_REVISION.
 parse_finished() {
   local path="$1"
   JOB_RESULT=""

@@ -160,8 +160,8 @@ PROWJOB_STATUS="downloaded"
 
 # --- Routing Records: clone-records.json / finished.json ---
 # clone-records.json is ci-operator's log of the sparse source clone(s) it
-# performed; finished.json is the step's overall result. Both feed the
-# provenance fields derived below.
+# performed; finished.json is the build-root Prow job's overall result, not
+# the e2e step's result. Both feed the provenance fields derived below.
 CLONE_RECORDS_URL="${GCS_BASE}/clone-records.json"
 CLONE_RECORDS_PATH="$WORK_DIR/clone-records.json"
 if curl -sfL "${CURL_TIMEOUT[@]}" "${CURL_MAXSIZE[@]}" "$CLONE_RECORDS_URL" -o "$CLONE_RECORDS_PATH" 2>/dev/null && [ -s "$CLONE_RECORDS_PATH" ] && jq -e . "$CLONE_RECORDS_PATH" >/dev/null 2>&1; then
