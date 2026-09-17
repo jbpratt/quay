@@ -118,6 +118,16 @@ json_array() {
   fi
 }
 
+# Like json_array, but each argument is already a JSON value (e.g. an object
+# built with jq -nc), not a raw string to be quoted.
+json_object_array() {
+  if [ "$#" -eq 0 ]; then
+    printf '[]'
+  else
+    printf '%s\n' "$@" | jq -s .
+  fi
+}
+
 echo "Job: $JOB_NAME" >&2
 echo "Build ID: $BUILD_ID" >&2
 echo "GCS base: $GCS_BASE" >&2
@@ -153,6 +163,30 @@ if [ "$JOB_STATUS" != "success" ] && [ "$JOB_STATUS" != "failure" ] && [ "$JOB_S
 fi
 
 echo "Job status: $JOB_STATUS" >&2
+
+# --- Routing Records: prowjob.json ---
+# Already fetched above to check job status; persist it alongside the other
+# routing records so a triager never has to re-fetch it from GCS.
+PROWJOB_URL="${GCS_BASE}/prowjob.json"
+PROWJOB_PATH="$WORK_DIR/prowjob.json"
+printf '%s' "$PROWJOB_JSON" >"$PROWJOB_PATH"
+PROWJOB_STATUS="downloaded"
+
+# --- Routing Records: top-level run build log ---
+# This is the top-level ci-operator log for the whole run, distinct from the
+# step-local build-log.txt fetched below from the e2e step's own artifact
+# directory.
+TOP_LEVEL_BUILD_LOG_URL="${GCS_BASE}/build-log.txt"
+TOP_LEVEL_BUILD_LOG_PATH="$WORK_DIR/top-level-build-log.txt"
+if curl -sfL "${CURL_TIMEOUT[@]}" "${CURL_MAXSIZE[@]}" "$TOP_LEVEL_BUILD_LOG_URL" -o "$TOP_LEVEL_BUILD_LOG_PATH" 2>/dev/null && [ -s "$TOP_LEVEL_BUILD_LOG_PATH" ]; then
+  TOP_LEVEL_BUILD_LOG_STATUS="downloaded"
+  echo "  Downloaded: top-level-build-log.txt" >&2
+else
+  rm -f "$TOP_LEVEL_BUILD_LOG_PATH"
+  TOP_LEVEL_BUILD_LOG_PATH=""
+  TOP_LEVEL_BUILD_LOG_STATUS="unavailable"
+  echo "  Not available: top-level build log" >&2
+fi
 
 # --- Discover Artifacts ---
 # The e2e step name for Quay Playwright tests is "quay-test-e2e".
@@ -277,12 +311,58 @@ if ! jq -e . "$WORK_DIR/results.json" >/dev/null; then
   exit 1
 fi
 
-# Download build log from the E2E step root.
+# --- Routing Records: JUnit ---
+# JUnit output lives next to results.json under ARTIFACT_BASE. There is
+# normally one file (junit_playwright.xml), but list the prefix rather than
+# probing a fixed name so a sharded run's multiple JUnit files are all
+# representable.
+JUNIT_RECORDS=()
+mkdir -p "$WORK_DIR/junit"
+if list_gcs_keys "${ARTIFACT_BASE}/"; then
+  downloaded_junit=0
+  for key in "${GCS_LIST_KEYS[@]}"; do
+    junit_name="${key#"${ARTIFACT_BASE}/"}"
+    if [[ "$junit_name" =~ ^[A-Za-z0-9._-]*junit[A-Za-z0-9._-]*\.xml$ ]]; then
+      echo "  Discovered JUnit file: ${junit_name}" >&2
+      if [ "$downloaded_junit" -ge "$MAX_DISCOVERED_ARTIFACTS" ]; then
+        echo "  WARNING: skipping additional JUnit files after ${MAX_DISCOVERED_ARTIFACTS}" >&2
+        continue
+      fi
+      downloaded_junit=$((downloaded_junit + 1))
+      junit_path="$WORK_DIR/junit/${junit_name}"
+      if curl -sfL "${CURL_TIMEOUT[@]}" "${CURL_MAXSIZE[@]}" "$key" -o "$junit_path" 2>/dev/null && [ -s "$junit_path" ]; then
+        JUNIT_RECORDS+=("$(jq -nc --arg url "$key" --arg path "$junit_path" --arg status "downloaded" '{source_url: $url, local_path: $path, status: $status}')")
+        echo "  Downloaded JUnit file: ${junit_name}" >&2
+      else
+        rm -f "$junit_path"
+        JUNIT_RECORDS+=("$(jq -nc --arg url "$key" --arg status "unavailable" '{source_url: $url, local_path: null, status: $status}')")
+        echo "  Could not download JUnit file: ${junit_name}" >&2
+      fi
+    fi
+  done
+else
+  echo "  Could not list JUnit files under ${ARTIFACT_BASE}" >&2
+fi
+if [ "${#JUNIT_RECORDS[@]}" -eq 0 ]; then
+  rmdir "$WORK_DIR/junit" 2>/dev/null || true
+fi
+JUNIT_RECORDS_JSON=$(json_object_array "${JUNIT_RECORDS[@]}")
+
+# Download build log from the E2E step root. This is the step-local log
+# (distinct from the top-level run build log fetched above); the field name
+# has_build_log is kept for the two skills that already consume it.
 BUILD_LOG_URL="${E2E_STEP_BASE}/build-log.txt"
-curl -sfL "${CURL_TIMEOUT[@]}" "${CURL_MAXSIZE[@]}" "$BUILD_LOG_URL" -o "$WORK_DIR/build-log.txt" 2>/dev/null && {
+STEP_BUILD_LOG_PATH="$WORK_DIR/build-log.txt"
+if curl -sfL "${CURL_TIMEOUT[@]}" "${CURL_MAXSIZE[@]}" "$BUILD_LOG_URL" -o "$STEP_BUILD_LOG_PATH" 2>/dev/null && [ -s "$STEP_BUILD_LOG_PATH" ]; then
   HAS_BUILD_LOG=true
+  STEP_BUILD_LOG_STATUS="downloaded"
   echo "  Downloaded: build-log.txt" >&2
-} || echo "  Not available: build-log.txt" >&2
+else
+  rm -f "$STEP_BUILD_LOG_PATH"
+  STEP_BUILD_LOG_PATH=""
+  STEP_BUILD_LOG_STATUS="unavailable"
+  echo "  Not available: build-log.txt" >&2
+fi
 
 # Check for HTML report
 HTML_REPORT_URL="${ARTIFACT_BASE}/index.html"
@@ -413,8 +493,19 @@ jq \
   --argjson redacted_container_log_files "$REDACTED_CONTAINER_LOG_FILES_JSON" \
   --argjson jaeger_trace_files "$JAEGER_TRACE_FILES_JSON" \
   --arg jaeger_artifact_base_url "$JAEGER_ARTIFACT_BASE" \
+  --arg prowjob_url "$PROWJOB_URL" \
+  --arg prowjob_path "$PROWJOB_PATH" \
+  --arg prowjob_status "$PROWJOB_STATUS" \
+  --arg top_level_build_log_url "$TOP_LEVEL_BUILD_LOG_URL" \
+  --arg top_level_build_log_path "$TOP_LEVEL_BUILD_LOG_PATH" \
+  --arg top_level_build_log_status "$TOP_LEVEL_BUILD_LOG_STATUS" \
+  --arg step_build_log_url "$BUILD_LOG_URL" \
+  --arg step_build_log_path "$STEP_BUILD_LOG_PATH" \
+  --arg step_build_log_status "$STEP_BUILD_LOG_STATUS" \
+  --argjson junit "$JUNIT_RECORDS_JSON" \
   '
   def strip_ansi: if type == "string" then gsub("[[:cntrl:]]\\[[0-9;]*m"; "") else . end;
+  def nullify: if . == "" then null else . end;
   [.. | objects | select(has("specs")) | .specs[]] as $specs
   | ((.stats.expected + .stats.unexpected + .stats.flaky + .stats.skipped)) as $total
   | {
@@ -427,6 +518,10 @@ jq \
       artifact_base_url: $artifact_base_url,
       html_report_url: $html_report_url,
       has_build_log: $has_build_log,
+      top_level_build_log: { source_url: $top_level_build_log_url, local_path: ($top_level_build_log_path | nullify), status: $top_level_build_log_status },
+      step_build_log: { source_url: $step_build_log_url, local_path: ($step_build_log_path | nullify), status: $step_build_log_status },
+      prowjob: { source_url: $prowjob_url, local_path: ($prowjob_path | nullify), status: $prowjob_status },
+      junit: $junit,
       has_container_logs: $has_container_logs,
       has_jaeger_traces: $has_jaeger_traces,
       container_log_files: $container_log_files,

@@ -89,6 +89,15 @@ Key fields:
 - `stats` — overall run statistics
 - `html_report_url` — link to the HTML report on GCSWeb (if available)
 - `has_build_log` / `has_container_logs` — what extra data is available
+- `top_level_build_log`, `step_build_log`, `prowjob`, `junit` — routing records for
+  the run's top-level ci-operator build log, the e2e step's own build log, the
+  fetched `prowjob.json`, and the JUnit XML file(s). Each of `top_level_build_log`,
+  `step_build_log`, and `prowjob` is an object with `source_url`, `local_path`
+  (`null` when not downloaded), and `status` (`downloaded` or `unavailable`).
+  `junit` is an array of the same shape, since a sharded run can upload more than
+  one JUnit file. `has_build_log` remains the field the step-local log's presence
+  is checked against; `step_build_log` carries the same download alongside its URL
+  and status.
 - `has_jaeger_traces` — whether `quay-gather-jaeger-traces` uploaded Jaeger
   artifacts for the discovered workflow; downloaded files are under
   `$ARTIFACTS_DIR/jaeger-traces/`
