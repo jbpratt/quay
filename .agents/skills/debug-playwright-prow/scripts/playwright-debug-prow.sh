@@ -122,6 +122,20 @@ echo "Job: $JOB_NAME" >&2
 echo "Build ID: $BUILD_ID" >&2
 echo "GCS base: $GCS_BASE" >&2
 
+# --- Scratch Storage ---
+# Never use system /tmp: downloaded CI artifacts stay under the repo's
+# gitignored tmp/ so a crashed run leaves recoverable, easy-to-find state
+# instead of orphaning files outside the workspace.
+if REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
+  :
+else
+  REPO_ROOT="$PWD"
+  echo "WARNING: not inside a git work tree; using \$PWD ($REPO_ROOT) as the repo root for scratch storage" >&2
+fi
+mkdir -p "$REPO_ROOT/tmp"
+WORK_DIR=$(mktemp -d "$REPO_ROOT/tmp/playwright-prow.XXXXXX")
+echo "Downloading artifacts to $WORK_DIR ..." >&2
+
 # --- Check Job Status ---
 # Download prowjob.json to check if the job has completed.
 PROWJOB_JSON=$(curl -sfL "${CURL_TIMEOUT[@]}" "${CURL_MAXSIZE[@]}" "${GCS_BASE}/prowjob.json" 2>/dev/null) || {
@@ -145,9 +159,6 @@ echo "Job status: $JOB_STATUS" >&2
 # Artifacts live under: artifacts/<workflow>/<step>/artifacts/
 # We probe for the Playwright JSON reporter output (results.json) to locate them.
 STEP_NAME="quay-test-e2e"
-
-WORK_DIR=$(mktemp -d)
-echo "Downloading artifacts to $WORK_DIR ..." >&2
 
 RESULTS_FOUND=false
 ARTIFACT_BASE=""
