@@ -45,8 +45,13 @@ parse_clone_records() {
     return
   fi
 
-  local entry
-  entry=$(jq -c '[.[] | select((.refs.org // "") != "" and (.refs.repo // "") != "")] | last // empty' "$path" 2>/dev/null)
+  local entry jq_rc=0
+  entry=$(jq -c '[.[] | select((.refs.org // "") != "" and (.refs.repo // "") != "")] | last // empty' "$path" 2>/dev/null) || jq_rc=$?
+  if [ "$jq_rc" -ne 0 ]; then
+    SOURCE_CLONE_SHA_REASON="clone-records.json could not be parsed as the expected shape (array of clone records)"
+    SOURCE_CLONE_REF_REASON="clone-records.json could not be parsed as the expected shape (array of clone records)"
+    return
+  fi
   if [ -z "$entry" ] || [ "$entry" = "null" ]; then
     SOURCE_CLONE_SHA_REASON="clone-records.json has no element with non-empty refs.org and refs.repo"
     SOURCE_CLONE_REF_REASON="clone-records.json has no element with non-empty refs.org and refs.repo"
@@ -77,7 +82,13 @@ parse_finished() {
     return
   fi
 
-  JOB_RESULT=$(jq -r '.result // empty' "$path" 2>/dev/null)
+  local jq_rc=0
+  JOB_RESULT=$(jq -r '.result // empty' "$path" 2>/dev/null) || jq_rc=$?
+  if [ "$jq_rc" -ne 0 ]; then
+    JOB_RESULT=""
+    JOB_RESULT_REASON="finished.json could not be parsed as the expected shape (JSON object with .result)"
+    return
+  fi
   if [ -z "$JOB_RESULT" ]; then
     JOB_RESULT_REASON="finished.json has no .result field"
   fi

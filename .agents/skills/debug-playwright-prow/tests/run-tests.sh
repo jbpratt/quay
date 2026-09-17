@@ -243,6 +243,133 @@ test_parse_playwright_sha_reasons_pairwise_distinct() {
   done
 }
 
+# --- parse_clone_records / parse_finished shape guards (requirement 5) ---
+
+# Runs func($path) inside a *freshly exec'd* bash process under set -euo
+# pipefail, printing the requested globals \x1f-separated for the caller to
+# inspect. This must be a new process, not a `( ... )` subshell of this
+# runner: bash disables errexit for the whole dynamic extent of a command
+# used as an if/while/until condition -- including any nested subshells,
+# even ones with their own explicit `set -e` -- and every test here runs
+# via run_test()'s `if "$1"; then`. Only a fresh exec escapes that.
+run_in_guarded_subshell() {
+  bash -c '
+    set -euo pipefail
+    . "$1"
+    func="$2"
+    path="$3"
+    shift 3
+    "$func" "$path"
+    out=()
+    for var in "$@"; do
+      out+=("${!var}")
+    done
+    IFS=$'"'"'\x1f'"'"'
+    printf "%s" "${out[*]}"
+  ' _ "$SCRIPT_DIR/../scripts/collector-lib.sh" "$@"
+}
+
+SHAPE_REASON_CLONE="clone-records.json could not be parsed as the expected shape (array of clone records)"
+SHAPE_REASON_FINISHED="finished.json could not be parsed as the expected shape (JSON object with .result)"
+
+test_parse_clone_records_top_level_object() {
+  local f="$TEST_TMP_DIR/clone-object.json" out rc=0
+  printf '{"unexpected": 1}\n' >"$f"
+  out=$(run_in_guarded_subshell parse_clone_records "$f" SOURCE_CLONE_SHA SOURCE_CLONE_SHA_REASON) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "  parse_clone_records killed the shell on a top-level JSON object (rc=$rc)" >&2
+    return 1
+  fi
+  local sha="${out%%$'\x1f'*}" reason="${out#*$'\x1f'}"
+  assert_eq "" "$sha" "top-level object leaves SHA empty" &&
+    assert_eq "$SHAPE_REASON_CLONE" "$reason" "top-level object reason"
+}
+
+test_parse_clone_records_array_of_scalars() {
+  local f="$TEST_TMP_DIR/clone-scalars.json" out rc=0
+  printf '[1, 2, 3]\n' >"$f"
+  out=$(run_in_guarded_subshell parse_clone_records "$f" SOURCE_CLONE_SHA SOURCE_CLONE_SHA_REASON) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "  parse_clone_records killed the shell on an array of scalars (rc=$rc)" >&2
+    return 1
+  fi
+  local sha="${out%%$'\x1f'*}" reason="${out#*$'\x1f'}"
+  assert_eq "" "$sha" "array of scalars leaves SHA empty" &&
+    assert_eq "$SHAPE_REASON_CLONE" "$reason" "array of scalars reason"
+}
+
+test_parse_clone_records_non_json_bytes() {
+  local f="$TEST_TMP_DIR/clone-non-json" out rc=0
+  printf 'this is not json at all\n' >"$f"
+  out=$(run_in_guarded_subshell parse_clone_records "$f" SOURCE_CLONE_SHA SOURCE_CLONE_SHA_REASON) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "  parse_clone_records killed the shell on non-JSON bytes (rc=$rc)" >&2
+    return 1
+  fi
+  local sha="${out%%$'\x1f'*}" reason="${out#*$'\x1f'}"
+  assert_eq "" "$sha" "non-JSON bytes leaves SHA empty" &&
+    assert_eq "$SHAPE_REASON_CLONE" "$reason" "non-JSON bytes reason"
+}
+
+test_parse_finished_top_level_array() {
+  local f="$TEST_TMP_DIR/finished-array.json" out rc=0
+  printf '[1, 2, 3]\n' >"$f"
+  out=$(run_in_guarded_subshell parse_finished "$f" JOB_RESULT JOB_RESULT_REASON) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "  parse_finished killed the shell on a top-level JSON array (rc=$rc)" >&2
+    return 1
+  fi
+  local result="${out%%$'\x1f'*}" reason="${out#*$'\x1f'}"
+  assert_eq "" "$result" "top-level array leaves JOB_RESULT empty" &&
+    assert_eq "$SHAPE_REASON_FINISHED" "$reason" "top-level array reason"
+}
+
+test_parse_finished_non_json_bytes() {
+  local f="$TEST_TMP_DIR/finished-non-json" out rc=0
+  printf 'this is not json at all\n' >"$f"
+  out=$(run_in_guarded_subshell parse_finished "$f" JOB_RESULT JOB_RESULT_REASON) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "  parse_finished killed the shell on non-JSON bytes (rc=$rc)" >&2
+    return 1
+  fi
+  local result="${out%%$'\x1f'*}" reason="${out#*$'\x1f'}"
+  assert_eq "" "$result" "non-JSON bytes leaves JOB_RESULT empty" &&
+    assert_eq "$SHAPE_REASON_FINISHED" "$reason" "non-JSON bytes reason"
+}
+
+test_parse_clone_records_reasons_pairwise_distinct() {
+  local f_shape="$TEST_TMP_DIR/d-clone-shape.json"
+  local f_no_element="$TEST_TMP_DIR/d-clone-no-element.json"
+  local f_no_final_sha="$TEST_TMP_DIR/d-clone-no-final-sha.json"
+  local f_no_base_ref="$TEST_TMP_DIR/d-clone-no-base-ref.json"
+  printf '{"unexpected": 1}\n' >"$f_shape"
+  printf '[]\n' >"$f_no_element"
+  printf '[{"refs": {"org": "quay", "repo": "quay", "base_ref": "master"}}]\n' >"$f_no_final_sha"
+  printf '[{"refs": {"org": "quay", "repo": "quay"}, "final_sha": "abc123"}]\n' >"$f_no_base_ref"
+
+  parse_clone_records ""
+  local r_not_downloaded="$SOURCE_CLONE_SHA_REASON"
+  parse_clone_records "$f_shape"
+  local r_shape="$SOURCE_CLONE_SHA_REASON"
+  parse_clone_records "$f_no_element"
+  local r_no_element="$SOURCE_CLONE_SHA_REASON"
+  parse_clone_records "$f_no_final_sha"
+  local r_no_final_sha="$SOURCE_CLONE_SHA_REASON"
+  parse_clone_records "$f_no_base_ref"
+  local r_no_base_ref="$SOURCE_CLONE_REF_REASON"
+
+  local reasons=("$r_not_downloaded" "$r_shape" "$r_no_element" "$r_no_final_sha" "$r_no_base_ref")
+  local i j
+  for ((i = 0; i < 5; i++)); do
+    for ((j = i + 1; j < 5; j++)); do
+      if [ "${reasons[$i]}" = "${reasons[$j]}" ]; then
+        echo "  reasons not pairwise distinct: '${reasons[$i]}'" >&2
+        return 1
+      fi
+    done
+  done
+}
+
 # --- json_array / json_object_array / first_lines_json ---
 
 test_json_array_empty() {
