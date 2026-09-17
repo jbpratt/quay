@@ -159,6 +159,11 @@ Key fields:
   `html_report_url`) is also made honest
   against this same placeholder: an `index.html` that is itself redacted is
   not reported as an available report.
+- `builder_diagnostics` — files under `builder-diagnostics/`, when present,
+  bounded by `MAX_DISCOVERED_ARTIFACTS`. Array of `{name, source_url,
+  local_path, status, first_lines}`; `first_lines` is a preview only — at
+  most the first 40 lines, ANSI-stripped, each truncated to 500
+  characters — never the whole file. Absent directory yields `[]`.
 
 If exit code is 2, the run is still in progress — tell the user to wait.
 

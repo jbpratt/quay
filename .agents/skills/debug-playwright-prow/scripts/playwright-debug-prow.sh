@@ -668,6 +668,66 @@ fi
 
 EVIDENCE_GAPS_JSON=$(json_object_array "${EVIDENCE_GAPS[@]}")
 
+# --- Builder Diagnostics ---
+# Bounded preview of a downloaded diagnostics file: at most 40 lines,
+# ANSI-stripped, each truncated to 500 characters -- a preview for triage,
+# never the whole file.
+first_lines_json() {
+  local path="$1"
+  # `|| true`: under pipefail, sed/cut can receive SIGPIPE (exit 141) once
+  # `head -n 40` stops reading a file with more than 40 lines; that is not a
+  # real failure of this pipeline.
+  sed -E 's/\x1b\[[0-9;]*m//g' "$path" | head -n 40 | cut -c1-500 | jq -R . | jq -s . || true
+}
+
+# Lists a GCS prefix and downloads at most MAX_DISCOVERED_ARTIFACTS files
+# from it into dest_dir, returning a JSON array of
+# {name, source_url, local_path, status, first_lines}. An absent prefix
+# (nothing found) returns [].
+collect_builder_diagnostics() {
+  local prefix="$1" dest_dir="$2"
+  local records=()
+  if ! list_gcs_keys "$prefix" || [ "${#GCS_LIST_KEYS[@]}" -eq 0 ]; then
+    printf '[]'
+    return
+  fi
+  mkdir -p "$dest_dir"
+  local count=0
+  local key name file_path lines
+  for key in "${GCS_LIST_KEYS[@]}"; do
+    if [ "$count" -ge "$MAX_DISCOVERED_ARTIFACTS" ]; then
+      echo "  WARNING: skipping additional builder-diagnostics files after ${MAX_DISCOVERED_ARTIFACTS}" >&2
+      continue
+    fi
+    count=$((count + 1))
+    name="${key#"$prefix"}"
+    # Listed object names are untrusted data (GCS is a flat namespace, so a
+    # key can contain "/" or ".." segments); only a flat, single-component
+    # name is trusted as a filesystem path, matching the allowlist gate the
+    # other download loops in this file use for their derived names.
+    if [ "$name" = "." ] || [ "$name" = ".." ] || [[ "$name" == */* ]] || [[ ! "$name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+      echo "  WARNING: skipping builder-diagnostics key with unexpected name: ${name}" >&2
+      records+=("$(jq -nc --arg name "$name" --arg url "$key" '{name: $name, source_url: $url, local_path: null, status: "unavailable", first_lines: []}')")
+      continue
+    fi
+    file_path="$dest_dir/$name"
+    if curl -sfL "${CURL_TIMEOUT[@]}" "${CURL_MAXSIZE[@]}" "$key" -o "$file_path" 2>/dev/null && [ -s "$file_path" ]; then
+      lines=$(first_lines_json "$file_path")
+      records+=("$(jq -nc --arg name "$name" --arg url "$key" --arg path "$file_path" --argjson lines "$lines" '{name: $name, source_url: $url, local_path: $path, status: "downloaded", first_lines: $lines}')")
+    else
+      rm -f "$file_path"
+      records+=("$(jq -nc --arg name "$name" --arg url "$key" '{name: $name, source_url: $url, local_path: null, status: "unavailable", first_lines: []}')")
+    fi
+  done
+  if [ "${#records[@]}" -eq 0 ]; then
+    printf '[]'
+  else
+    printf '%s\n' "${records[@]}" | jq -s .
+  fi
+}
+
+BUILDER_DIAGNOSTICS_JSON=$(collect_builder_diagnostics "${ARTIFACT_BASE}/builder-diagnostics/" "$WORK_DIR/builder-diagnostics")
+
 # Check for pod-qualified Quay container logs in gather-extra artifacts.
 # GCS has a flat namespace: list the known pods prefix rather than probing a
 # few legacy object names. Keep a concatenated quay.log for compatibility.
@@ -843,6 +903,7 @@ jq \
   --argjson junit "$JUNIT_RECORDS_JSON" \
   --argjson attachment_status_map "$ATTACHMENT_STATUS_MAP_JSON" \
   --argjson evidence_gaps "$EVIDENCE_GAPS_JSON" \
+  --argjson builder_diagnostics "$BUILDER_DIAGNOSTICS_JSON" \
   --arg source_image_digest "$SOURCE_IMAGE_DIGEST" \
   --arg source_image_digest_reason "$SOURCE_IMAGE_DIGEST_REASON" \
   --arg release_config_revision "$RELEASE_CONFIG_REVISION" \
@@ -901,6 +962,7 @@ jq \
       jaeger_trace_files: $jaeger_trace_files,
       jaeger_artifact_base_url: $jaeger_artifact_base_url,
       evidence_gaps: $evidence_gaps,
+      builder_diagnostics: $builder_diagnostics,
       global_setup_failure: ($total == 0),
       stats: {
         total: $total,
