@@ -182,6 +182,21 @@ first_lines_json() {
   sed -E 's/\x1b\[[0-9;]*m//g' "$path" | head -n 40 | cut -c1-500 | jq -R . | jq -s . || true
 }
 
+# Prints the evidence-gap JSON record for must-gather.tar's classify_object_head
+# status, or nothing when that status records no gap (this is the round-1
+# defect: intact-but-over-cap and never-ran must never produce a gap record).
+must_gather_gap_record() {
+  local status="$1" url="$2"
+  case "$status" in
+    redacted)
+      jq -nc --arg url "$url" '{artifact: "must-gather.tar", source_url: $url, status: "redacted", reason: "CI sensitive-content placeholder"}'
+      ;;
+    missing)
+      jq -nc --arg url "$url" '{artifact: "must-gather.tar", source_url: $url, status: "missing", reason: "range read failed"}'
+      ;;
+  esac
+}
+
 # Listed object names are untrusted data (GCS is a flat namespace, so a
 # key can contain "/" or ".." segments); only a flat, single-component
 # name is trusted as a filesystem path, matching the allowlist gate the

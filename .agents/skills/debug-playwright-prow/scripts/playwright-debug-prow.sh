@@ -488,17 +488,13 @@ EVIDENCE_GAPS=()
 
 MUST_GATHER_URL="${WORKFLOW_BASE}/gather-must-gather/artifacts/must-gather.tar"
 must_gather_status=$(classify_object_head "$MUST_GATHER_URL")
-case "$must_gather_status" in
-  redacted)
-    EVIDENCE_GAPS+=("$(jq -nc --arg url "$MUST_GATHER_URL" '{artifact: "must-gather.tar", source_url: $url, status: "redacted", reason: "CI sensitive-content placeholder"}')")
-    ;;
-  missing)
-    EVIDENCE_GAPS+=("$(jq -nc --arg url "$MUST_GATHER_URL" '{artifact: "must-gather.tar", source_url: $url, status: "missing", reason: "range read failed"}')")
-    ;;
-  not_found)
-    echo "  gather-must-gather step did not run for this job (no must-gather.tar)" >&2
-    ;;
-esac
+must_gather_record=$(must_gather_gap_record "$must_gather_status" "$MUST_GATHER_URL")
+if [ -n "$must_gather_record" ]; then
+  EVIDENCE_GAPS+=("$must_gather_record")
+fi
+if [ "$must_gather_status" = "not_found" ]; then
+  echo "  gather-must-gather step did not run for this job (no must-gather.tar)" >&2
+fi
 
 if list_gcs_keys "${ARTIFACT_BASE}/data/"; then
   data_blob_count=0

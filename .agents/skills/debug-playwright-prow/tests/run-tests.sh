@@ -123,23 +123,29 @@ test_classify_object_head_range_read_fails() {
   assert_eq "missing" "$(classify_object_head "http://x")" "200 but range read fails"
 }
 
-# Pins the CONSEQUENCE of classify_object_head's result: the status->gap
-# mapping used by the case statement at playwright-debug-prow.sh (~line 491),
-# mirrored here as a table since that emission site is a top-level case
-# statement in the main script, not reachable from the lib.
-test_status_to_evidence_gap_mapping() {
-  local status expected actual
-  for status in usable not_found redacted missing; do
-    case "$status" in
-      usable | not_found) expected="no_gap" ;;
-      redacted | missing) expected="gap" ;;
-    esac
-    case "$status" in
-      redacted | missing) actual="gap" ;;
-      *) actual="no_gap" ;;
-    esac
-    assert_eq "$expected" "$actual" "status=$status"
-  done
+# Exercises the actual status->gap emission logic used at the must-gather
+# call site in playwright-debug-prow.sh's "Run-level Evidence Gaps" section,
+# not a mirrored table.
+test_must_gather_gap_record_usable() {
+  assert_eq "" "$(must_gather_gap_record "usable" "http://x")" "usable produces no record"
+}
+
+test_must_gather_gap_record_not_found() {
+  assert_eq "" "$(must_gather_gap_record "not_found" "http://x")" "not_found produces no record"
+}
+
+test_must_gather_gap_record_redacted() {
+  local out
+  out=$(must_gather_gap_record "redacted" "http://x")
+  assert_eq "redacted" "$(printf '%s' "$out" | jq -r '.status')" "redacted status field" &&
+    assert_eq "CI sensitive-content placeholder" "$(printf '%s' "$out" | jq -r '.reason')" "redacted reason field"
+}
+
+test_must_gather_gap_record_missing() {
+  local out
+  out=$(must_gather_gap_record "missing" "http://x")
+  assert_eq "missing" "$(printf '%s' "$out" | jq -r '.status')" "missing status field" &&
+    assert_eq "range read failed" "$(printf '%s' "$out" | jq -r '.reason')" "missing reason field"
 }
 
 # --- is_safe_flat_name (requirement 3) ---
