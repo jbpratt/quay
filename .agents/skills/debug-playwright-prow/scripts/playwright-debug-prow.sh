@@ -348,6 +348,75 @@ if [ "${#JUNIT_RECORDS[@]}" -eq 0 ]; then
 fi
 JUNIT_RECORDS_JSON=$(json_object_array "${JUNIT_RECORDS[@]}")
 
+# --- Attachment Validation ---
+# Every attachment Playwright advertises (screenshot, video, trace), on
+# results of any status, is downloaded once and classified before its URL is
+# trusted:
+# usable, redacted (the CI sensitive-content placeholder, same text already
+# used to detect redacted pod logs above), or missing (download failed, or a
+# trace zip that fails validation). A trace zip is only ever advertised as
+# usable after both its magic bytes and `unzip -t` pass.
+ATTACHMENT_STATUS_RECORDS=()
+mkdir -p "$WORK_DIR/attachments"
+HAVE_UNZIP=true
+command -v unzip >/dev/null 2>&1 || HAVE_UNZIP=false
+
+CANDIDATE_ATTACHMENTS_JSON=$(jq -c --arg artifact_base_url "$ARTIFACT_BASE" '
+  [.. | objects | select(has("attachments")) | .attachments[]?
+   | select(.path != null)
+   # URL-building expression duplicated in build_attachments (report filter below); keep byte-identical.
+   | { name, url: ($artifact_base_url + "/" + (.path | sub(".*/test-results/"; "") | split("/") | map(select(. != "..")) | join("/"))) }
+  ] | unique_by(.url)
+' "$WORK_DIR/results.json")
+
+attachment_count=0
+while IFS= read -r candidate; do
+  [ -z "$candidate" ] && continue
+  attachment_count=$((attachment_count + 1))
+  att_name=$(printf '%s' "$candidate" | jq -r '.name')
+  att_url=$(printf '%s' "$candidate" | jq -r '.url')
+
+  if [ "$attachment_count" -gt "$MAX_DISCOVERED_ARTIFACTS" ]; then
+    echo "  WARNING: skipping additional attachment checks after ${MAX_DISCOVERED_ARTIFACTS}" >&2
+    ATTACHMENT_STATUS_RECORDS+=("$(jq -nc --arg url "$att_url" '{url: $url, status: "missing", reason: "attachment check cap exceeded"}')")
+    continue
+  fi
+
+  att_file="$WORK_DIR/attachments/attachment-${attachment_count}"
+  status="missing"
+  reason="download failed"
+  if curl -sfL "${CURL_TIMEOUT[@]}" "${CURL_MAXSIZE[@]}" "$att_url" -o "$att_file" 2>/dev/null && [ -s "$att_file" ]; then
+    if grep -Fqx 'This file contained potentially sensitive information and has been removed.' "$att_file"; then
+      status="redacted"
+      reason="CI sensitive-content placeholder"
+    elif [ "$att_name" = "trace" ]; then
+      if [ "$(head -c 2 "$att_file")" != "PK" ]; then
+        status="missing"
+        reason="not a valid zip (bad magic bytes)"
+      elif [ "$HAVE_UNZIP" = "true" ]; then
+        if unzip -tq "$att_file" >/dev/null 2>&1; then
+          status="usable"
+          reason=""
+        else
+          status="missing"
+          reason="unzip -t failed (corrupt archive)"
+        fi
+      else
+        status="missing"
+        reason="zip integrity check not performed (unzip unavailable)"
+      fi
+    else
+      status="usable"
+      reason=""
+    fi
+  fi
+  rm -f "$att_file"
+  ATTACHMENT_STATUS_RECORDS+=("$(jq -nc --arg url "$att_url" --arg status "$status" --arg reason "$reason" '{url: $url, status: $status, reason: ($reason | if . == "" then null else . end)}')")
+done < <(printf '%s' "$CANDIDATE_ATTACHMENTS_JSON" | jq -c '.[]')
+rmdir "$WORK_DIR/attachments" 2>/dev/null || true
+
+ATTACHMENT_STATUS_MAP_JSON=$(json_object_array "${ATTACHMENT_STATUS_RECORDS[@]}" | jq -c 'map({(.url): {status, reason}}) | add // {}')
+
 # Download build log from the E2E step root. This is the step-local log
 # (distinct from the top-level run build log fetched above); the field name
 # has_build_log is kept for the two skills that already consume it.
@@ -503,9 +572,14 @@ jq \
   --arg step_build_log_path "$STEP_BUILD_LOG_PATH" \
   --arg step_build_log_status "$STEP_BUILD_LOG_STATUS" \
   --argjson junit "$JUNIT_RECORDS_JSON" \
+  --argjson attachment_status_map "$ATTACHMENT_STATUS_MAP_JSON" \
   '
   def strip_ansi: if type == "string" then gsub("[[:cntrl:]]\\[[0-9;]*m"; "") else . end;
   def nullify: if . == "" then null else . end;
+  def with_attachment_status: . as $a | if $a.url == null then $a + {status: "missing", reason: "no attachment path in results.json"} else $a + ($attachment_status_map[$a.url] // {status: null, reason: null}) end;
+  # URL-building expression duplicated in the candidate-attachments query above; keep byte-identical
+  # so attachment_status_map lookups (keyed by this URL) keep resolving.
+  def build_attachments: [ .attachments[] | { name, path, url: (if .path then ($artifact_base_url + "/" + (.path | sub(".*/test-results/"; "") | split("/") | map(select(. != "..")) | join("/"))) else null end) } | with_attachment_status ];
   [.. | objects | select(has("specs")) | .specs[]] as $specs
   | ((.stats.expected + .stats.unexpected + .stats.flaky + .stats.skipped)) as $total
   | {
@@ -544,13 +618,18 @@ jq \
         attempts: [ .results[] | {
           retry: .retry, status: .status, duration: .duration,
           errors: [ .errors[].message | strip_ansi ],
-          attachments: [ .attachments[] | { name, path, url: (if .path then ($artifact_base_url + "/" + (.path | sub(".*/test-results/"; ""))) else null end) } ]
+          attachments: build_attachments
         } ]
       } ],
       flaky: [ $specs[] as $s | $s.tests[] | select(.status == "flaky") | {
         title: $s.title, file: $s.file, line: $s.line,
         retries: ([.results[].retry] | max),
-        first_error: ((.results[0].errors[0].message // .results[0].error.message // "") | strip_ansi)
+        first_error: ((.results[0].errors[0].message // .results[0].error.message // "") | strip_ansi),
+        attempts: [ .results[] | {
+          retry: .retry, status: .status, duration: .duration,
+          errors: [ .errors[].message | strip_ansi ],
+          attachments: build_attachments
+        } ]
       } ],
       skipped: [ $specs[] as $s | $s.tests[] | select(.status == "skipped") | {
         title: $s.title, file: $s.file, line: $s.line,

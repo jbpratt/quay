@@ -82,8 +82,9 @@ All fields are derived from Playwright's JSON reporter output (`results.json`).
 
 Key fields:
 - `artifacts_dir` — temp directory with downloaded artifacts
-- `failed` — tests that failed (real failures). Each has `title`, `file`, `line`, `project`, `error_message` (ANSI-stripped), and `attempts` — one entry per retry with `retry`, `status`, `duration`, `errors`, and `attachments` (each carrying a browsable `url`, e.g. the trace zip)
-- `flaky` — tests that failed then passed on retry. Each has `title`, `file`, `line`, `retries`, `first_error`
+- `failed` — tests that failed (real failures). Each has `title`, `file`, `line`, `project`, `error_message` (ANSI-stripped), and `attempts` — one entry per retry with `retry`, `status`, `duration`, `errors`, and `attachments`
+- `flaky` — tests that failed then passed on retry. Each has `title`, `file`, `line`, `retries`, `first_error`, and `attempts` in the same shape as `failed` (covers the attempt that actually failed, even though the test's overall status is flaky)
+- Every attachment (in `failed[].attempts[]` or `flaky[].attempts[]`) carries a browsable `url` (e.g. the trace zip) plus `status` — `usable`, `redacted` (the CI sensitive-content placeholder), or `missing` (download failed, or a trace zip that failed magic-byte/`unzip -t` validation) — and a `reason` string when `status` is not `usable`. A trace URL is never marked `usable` without a passing `unzip -t`; if `unzip` is unavailable on the runner, the trace is reported `missing` with a reason saying the integrity check was not performed, rather than silently advertised as usable.
 - `skipped` — tests that were skipped. Each has `title`, `file`, `line`, `reason` (the skip annotation description)
 - `interrupted` — tests where a worker crashed
 - `stats` — overall run statistics
@@ -142,7 +143,9 @@ Understand what the test does — what page it navigates to, what selectors it u
 what API calls it makes.
 
 Check each entry's `attempts` for the failing result's `errors` and its trace
-`attachments` (the trace `url` opens in the Playwright trace viewer).
+`attachments` (the trace `url` opens in the Playwright trace viewer, but only
+when that attachment's `status` is `usable` — a `redacted` or `missing`
+trace has no browsable content).
 
 ### 3b: Correlate with build log
 
