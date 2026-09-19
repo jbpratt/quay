@@ -16,6 +16,7 @@ allowed-tools:
   - Bash(CLOUDSDK_AUTH_DISABLE_CREDENTIALS=1 gcloud storage cp *)
   - Bash(bash .agents/skills/debug-playwright-prow/scripts/playwright-debug-prow.sh *)
   - Bash(bash .agents/skills/debug-playwright-prow/scripts/jaeger-extract.sh *)
+  - Bash(gc bd update *)
   - Read
   - Grep
 ---
@@ -169,7 +170,81 @@ State plainly, every time retries are involved: retry recovery is an
 outcome, never a cause and never proof of harmlessness. A timeout alone
 proves no cause either.
 
-## f. Jaeger caveat
+## f. Record the finding in the triage sheet
+
+The triage results tracking sheet is
+`1-hwsDTtyRwwXfLPgOvBjzVbIJa1H3zYokoPPQcTCRx4`, tab `findings`. It is
+**private, owner-only** — nobody changes its permissions.
+
+**Row grain**: one row = one FINDING — one distinct diagnosed cause, from one
+triage. That is exactly one `failures[]` entry from the report schema in
+section e above.
+
+**Column order (20, exact):**
+
+```
+triage_date, bead, source, job, branch, run_url, test, spec_file,
+category, subtype, signature, confidence, root_cause, code_citation,
+flake_rate, flake_rate_source, disposition, fix_pr, jira, evidence_gaps
+```
+
+Value vocabularies not already covered in section e:
+
+- **`disposition`**: one of `fixed`, `dispatched`, `no-action`, `watching`,
+  `duplicate`, `superseded`.
+- **`evidence_gaps`**: short semicolon-separated tags, not prose — e.g.
+  `retry-trace-redacted; pod-log-redacted; release-rev-absent;
+  playwright-sha-absent; no-matching-span; artifact-403; attachment-cap`.
+- **`fix_pr`**: every PR that fixes the finding, branch-prefixed, e.g.
+  `master#7219, 3.17#7247, 3.16#7248`. A backport is an attribute of the
+  finding, not its own row.
+
+An empty cell is data. Never reconstruct, infer, or guess a value to make a
+row look complete.
+
+**Append command:**
+
+```bash
+SID=1-hwsDTtyRwwXfLPgOvBjzVbIJa1H3zYokoPPQcTCRx4
+
+gws sheets spreadsheets values append \
+  --params "{\"spreadsheetId\":\"$SID\",\"range\":\"findings!A1\", \
+\"valueInputOption\":\"RAW\",\"insertDataOption\":\"INSERT_ROWS\"}" \
+  --json '{"values":[[ ...20 cells, column order above... ]]}'
+```
+
+**Read-back command:**
+
+```bash
+gws sheets spreadsheets values get \
+  --params "{\"spreadsheetId\":\"$SID\",\"range\":\"findings!A1:T100\"}" | \
+  jq -r '.values|length'
+```
+
+Two gotchas:
+
+- `gws` prints `Using keyring backend: keyring` to **stderr**, not stdout. On
+  a plain pipe (`gws ... | jq ...`), stdout is already clean JSON — do not
+  pipe through `tail -n +2` before `jq`, or you strip the real first line of
+  the JSON and the parse fails. `tail -n +2` is only needed if you have
+  merged stderr into stdout yourself (e.g. `gws ... 2>&1 | tail -n +2 | jq`)
+  for combined logging.
+- Use `RAW`, not `USER_ENTERED` — `USER_ENTERED` coerces `2026-09-18` into a
+  serial date and can mangle values beginning with `=`, `+`, or `-`.
+
+**Who writes a row:** the rig lead writes it when it relays the outcome, in
+the same turn as the DONE mail, because that is the only moment the
+disposition exists. The mayor writes it when it discharges a triage with no
+live lead — not hypothetical, it happened twice on 2026-09-18 (`qu-7a77f`,
+`qu-4uv5r`). This skill's agent does **not** write the row: it is a
+read-only lane with no Drive credentials, and at triage time the disposition
+and `fix_pr` do not exist yet.
+
+`signature` is empty on non-Prow rows because only this skill emits the
+structured report schema; that gap is a separate future goal, not something
+to fix here.
+
+## g. Jaeger caveat
 
 Do not assume spans exist. `qu-frjf` recorded
 `server-spans.json: not collected: JAEGER_QUERY_URL unset`; `qu-6rrr`
@@ -189,7 +264,7 @@ spans for one endpoint (see that skill's step 3d for usage); correlate only
 matching request/trace IDs from its output, per the pipeline-first routing
 above.
 
-## g. Reference map
+## h. Reference map
 
 - **openshift-eng/ai-helpers**, `plugins/ci` — the OpenShift CI plugin;
   prefer it over ad hoc queries for job -> workflow -> chain -> ref
@@ -199,6 +274,12 @@ above.
   `.agents/skills/triage-flaky-test/SKILL.md` (Stage A). Follow that skill's
   usage rather than re-deriving the URLs here.
 
-## h. Closing
+## i. Closing
 
 Policy, quarantine, and publication decisions go to the human via the mayor.
+
+At close, stamp the triage bead: `gc bd update <triage-bead> --set-metadata
+gc.triage=1`. This makes forgotten rows findable as an exact query
+(`gc bd list --all --metadata-field gc.triage=1 --json`) diffable against the
+sheet's bead column, instead of a keyword grep that returns dozens of
+unrelated beads for a handful of real triages.
