@@ -688,8 +688,19 @@ test.describe(
       // Remove the route mock so the cancel API call goes through
       await authenticatedPage.unrouteAll();
 
-      // Confirm cancellation
-      await authenticatedPage.getByTestId('confirm-cancel-sync-button').click();
+      // Confirm cancellation, and assert the sync-cancel request itself
+      // succeeded before trusting the later config poll — otherwise a
+      // transport/API rejection would only surface as a bare SYNCING
+      // status 25 lines later.
+      const [cancelResponse] = await Promise.all([
+        authenticatedPage.waitForResponse(
+          (response) =>
+            response.url().endsWith('/mirror/sync-cancel') &&
+            response.request().method() === 'POST',
+        ),
+        authenticatedPage.getByTestId('confirm-cancel-sync-button').click(),
+      ]);
+      expect(cancelResponse.status()).toBe(204);
 
       // Verify success message
       await expect(
@@ -701,6 +712,100 @@ test.describe(
       expect(config?.sync_status).toBe('CANCEL');
       // sync_expiration_date should be set (non-null) — signals "needs processing"
       expect(config?.sync_expiration_date).not.toBeNull();
+    });
+
+    test('cancel sync flow reports failure when sync-cancel request fails', async ({
+      authenticatedPage,
+      api,
+    }): Promise<void> => {
+      const org = await api.organization('orgmirrcflf');
+      const robot = await api.robot(org.name, 'cflfbot');
+
+      const syncStartDate = new Date();
+      syncStartDate.setMinutes(syncStartDate.getMinutes() + 60);
+      await api.raw.createOrgMirrorConfig(org.name, {
+        external_registry_type: 'quay',
+        external_registry_url: 'https://quay.io',
+        external_namespace: 'projectquay',
+        robot_username: robot.fullName,
+        visibility: 'private',
+        sync_interval: 3600,
+        sync_start_date: syncStartDate.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      });
+
+      // Trigger sync-now to put config in SYNC_NOW state
+      await api.raw.triggerOrgMirrorSync(org.name);
+
+      // Mock the GET response to show SYNCING repo counts so the cancel button is enabled
+      await authenticatedPage.route(
+        `**/api/v1/organization/${org.name}/mirror`,
+        async (route): Promise<void> => {
+          if (route.request().method() === 'GET') {
+            const response = await route.fetch();
+            const body = await response.json();
+            body.repo_sync_status_counts = {
+              SUCCESS: 0,
+              SYNCING: 2,
+              FAIL: 0,
+              NEVER_RUN: 0,
+              SYNC_NOW: 1,
+              CANCEL: 0,
+            };
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(body),
+            });
+          } else {
+            await route.continue();
+          }
+        },
+      );
+
+      await authenticatedPage.goto(`/organization/${org.name}?tab=Mirroring`);
+
+      await expect(
+        authenticatedPage.getByTestId('org-mirror-form'),
+      ).toBeVisible();
+
+      await expect(
+        authenticatedPage.getByTestId('cancel-sync-button'),
+      ).toBeEnabled();
+
+      await authenticatedPage.getByTestId('cancel-sync-button').click();
+
+      await expect(
+        authenticatedPage.getByText(
+          'Are you sure you want to cancel the current sync operation?',
+        ),
+      ).toBeVisible();
+
+      // Deliberately force the sync-cancel request to fail, so the UI's
+      // reaction to a rejected cancel can be asserted: the swallowed-rejection
+      // bug means the UI must not report success here.
+      await authenticatedPage.route(
+        `**/api/v1/organization/${org.name}/mirror/sync-cancel`,
+        async (route): Promise<void> => {
+          await route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            body: JSON.stringify({message: 'forced failure'}),
+          });
+        },
+      );
+
+      await authenticatedPage.getByTestId('confirm-cancel-sync-button').click();
+
+      await expect(
+        authenticatedPage.getByText('Error cancelling sync').first(),
+      ).toBeVisible();
+      await expect(
+        authenticatedPage.getByText('Sync cancelled successfully').first(),
+      ).not.toBeVisible();
+
+      // Config must still be SYNCING/SYNC_NOW — the cancel never happened.
+      const config = await api.raw.getOrgMirrorConfig(org.name);
+      expect(['SYNCING', 'SYNC_NOW']).toContain(config?.sync_status);
     });
 
     test('cancel sync modal can be dismissed without cancelling', async ({

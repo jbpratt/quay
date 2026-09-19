@@ -270,8 +270,9 @@ export const useOrgMirroringConfig = (
     try {
       await cancelOrgMirrorSync(orgName);
       invalidateConfig();
-    } catch {
+    } catch (err) {
       setIsCancellingSync(false);
+      throw err;
     }
   }, [orgName, invalidateConfig]);
 
