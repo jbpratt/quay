@@ -21,9 +21,9 @@ make local-dev-up-with-clair         # Include Clair security scanner
 make local-dev-down                  # Shutdown
 podman restart quay-quay             # Apply code changes
 
-# Testing
-TEST=true PYTHONPATH="." pytest path/to/test.py -v                    # Single test file
-TEST=true PYTHONPATH="." pytest path/to/test.py::TestClass::test_fn -v # Single test
+# Testing (see agent_docs/testing.md#python-environment for the venv setup)
+TEST=true PYTHONPATH="." ./venv/bin/pytest path/to/test.py -v                    # Single test file
+TEST=true PYTHONPATH="." ./venv/bin/pytest path/to/test.py::TestClass::test_fn -v # Single test
 make unit-test                       # All unit tests
 make registry-test                   # Registry protocol tests
 

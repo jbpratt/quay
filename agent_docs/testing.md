@@ -1,22 +1,62 @@
 # Testing Guide
 
+## Python Environment
+
+A bare `pytest` resolves to whatever interpreter is first on `PATH`, which may
+not match the checked-out branch's pins. Always run tests from a
+checkout-local venv built from the current branch's own requirements:
+
+```bash
+python3.12 -m venv venv
+./venv/bin/pip install -r requirements-dev.txt
+```
+
+The install compiles several packages from source (psycopg2, python-ldap,
+lxml, grpcio); a compiler error here usually means a missing system header
+(e.g. `libpq-dev`/`postgresql-devel`, `libldap2-dev`, `libsasl2-dev`), not a
+requirements problem.
+
+The Makefile already puts `./venv/bin` first on `PATH`
+(`export PATH := ./venv/bin:$(PATH)`), so `make unit-test` and friends pick
+this venv up automatically. To run pytest directly, call `./venv/bin/pytest`
+(or `source venv/bin/activate` first and use plain `pytest`).
+
+Confirm you're on the right interpreter before trusting results — `--version`
+alone prints the same string for every venv, so use `-VV`, which prints the
+path pytest was imported from:
+
+```bash
+./venv/bin/python -m pytest -VV   # path should be under this checkout's venv, not a shared one
+```
+
+Requirements pins diverge between `master` and the `redhat-X.Y` release
+branches. A venv built for one branch is wrong for another — rebuild `venv`
+after switching branches, or keep a separate worktree/venv per branch.
+
+**Recognize an environment mismatch:** an import error at collection, or a
+`TypeError` raised from inside a dependency rather than the code under test,
+usually means the venv's pins don't match the branch. Both can also come from
+a real defect (a missing import in your change, wrong arguments into a
+library), so check the traceback and installed versions before assuming a
+mismatch and rebuilding the venv.
+
 ## Test Commands
 
 ```bash
 # Single test file
-TEST=true PYTHONPATH="." pytest path/to/test.py -v
+TEST=true PYTHONPATH="." ./venv/bin/pytest path/to/test.py -v
 
 # Single test function
-TEST=true PYTHONPATH="." pytest path/to/test.py::TestClass::test_function -v
+TEST=true PYTHONPATH="." ./venv/bin/pytest path/to/test.py::TestClass::test_function -v
 
 # With short traceback
-TEST=true PYTHONPATH="." pytest path/to/test.py -v --tb=short
+TEST=true PYTHONPATH="." ./venv/bin/pytest path/to/test.py -v --tb=short
 
 # Quiet output (just pass/fail)
-TEST=true PYTHONPATH="." pytest path/to/test.py -q --tb=no
+TEST=true PYTHONPATH="." ./venv/bin/pytest path/to/test.py -q --tb=no
 
 # Pattern matching
-TEST=true PYTHONPATH="." pytest path/to/test.py -k "keyword" -v
+TEST=true PYTHONPATH="." ./venv/bin/pytest path/to/test.py -k "keyword" -v
 ```
 
 ## Test Types

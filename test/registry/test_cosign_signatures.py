@@ -2,8 +2,8 @@
 """
 Integration tests for cosign signatures, OCI referrers API, and OCI artifacts.
 
-Run:
-  TEST=true PYTHONPATH="." pytest test/registry/test_cosign_signatures.py -v
+Run (see agent_docs/testing.md#python-environment for the venv setup):
+  TEST=true PYTHONPATH="." ./venv/bin/pytest test/registry/test_cosign_signatures.py -v
   make registry-test  # includes this file
 """
 

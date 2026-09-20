@@ -31,7 +31,8 @@ mailing list or IRC (see [Community](#community) below).
 - Python 3.12
 - Node 20+
 - pnpm (for frontend development)
-- pre-commit (`pip install pre-commit`)
+- A checkout-local venv with `pre-commit` installed — see
+  `agent_docs/testing.md#python-environment` for setup
 
 ### Local Development
 
@@ -90,11 +91,12 @@ Every code change must include tests.
 **Backend (Python):**
 
 ```bash
-TEST=true PYTHONPATH="." pytest path/to/test.py -v                     # Single file
-TEST=true PYTHONPATH="." pytest path/to/test.py::TestClass::test_fn -v # Single test
-make unit-test                                                         # All unit tests
-make registry-test                                                     # Registry protocol
-make types-test                                                        # Type checking (mypy)
+# see agent_docs/testing.md#python-environment for the venv setup
+TEST=true PYTHONPATH="." ./venv/bin/pytest path/to/test.py -v                     # Single file
+TEST=true PYTHONPATH="." ./venv/bin/pytest path/to/test.py::TestClass::test_fn -v # Single test
+make unit-test                                                                    # All unit tests
+make registry-test                                                                # Registry protocol
+make types-test                                                                   # Type checking (mypy)
 ```
 
 **Frontend:**

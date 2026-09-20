@@ -39,12 +39,12 @@ Python 3.9 and earlier are currently supported.
 
 :exclamation: Be mindful that overriding your operating system's default Python version is not a good idea. Check out [this guide](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/configuring_basic_system_settings/assembly_installing-and-using-python_configuring-basic-system-settings) for instructions on installing Python 3 on RHEL 8, or alternatively use [pyenv](https://github.com/pyenv/pyenv#readme).
 
-Run either of the following in the quay directory where the repository is forked. It installs the pre-commit checks like trailing-whitespace, new line at EOF, secret leaks and black required before pushing to git.
+Run either of the following in the quay directory where the repository is forked. It installs the pre-commit checks like trailing-whitespace, new line at EOF, secret leaks and black required before pushing to git. Install into a checkout-local venv (see `agent_docs/testing.md#python-environment`), not your system Python.
 
 ```
-pip install pre-commit==4.5.0
+./venv/bin/pip install pre-commit==4.5.0
 
-pre-commit install
+./venv/bin/pre-commit install
 ```
 
 or you can run:

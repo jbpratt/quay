@@ -82,13 +82,15 @@ The `PREFERRED_GROUP_CLAIM_NAME` in your Quay config must match the **Token Clai
 
 ## Testing
 
+See `agent_docs/testing.md#python-environment` for the venv setup `pytest` below assumes.
+
 ```bash
 # OIDC superuser sync tests (sync_superuser_status, sync_user_groups integration)
-TEST=true PYTHONPATH="." pytest test/test_external_oidc.py::OIDCSuperuserSyncTests -v
+TEST=true PYTHONPATH="." ./venv/bin/pytest test/test_external_oidc.py::OIDCSuperuserSyncTests -v
 
 # ConfigUserManager register/deregister tests
-TEST=true PYTHONPATH="." pytest util/config/test/test_superusermanager.py -v
+TEST=true PYTHONPATH="." ./venv/bin/pytest util/config/test/test_superusermanager.py -v
 
 # All OIDC tests
-TEST=true PYTHONPATH="." pytest test/test_external_oidc.py -v
+TEST=true PYTHONPATH="." ./venv/bin/pytest test/test_external_oidc.py -v
 ```

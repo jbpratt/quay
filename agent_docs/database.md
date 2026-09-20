@@ -83,9 +83,11 @@ with db_transaction() as db:
 
 ## Testing with Database
 
+See `agent_docs/testing.md#python-environment` for the venv setup `pytest` below assumes.
+
 ```bash
 # Run tests with SQLite (default)
-TEST=true PYTHONPATH="." pytest test/test_file.py -v
+TEST=true PYTHONPATH="." ./venv/bin/pytest test/test_file.py -v
 
 # Run tests with PostgreSQL
 make test_postgres TESTS=test/test_file.py

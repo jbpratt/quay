@@ -113,7 +113,8 @@ Key paths: `data/database.py` is the schema source of truth, `endpoints/v2/` ser
 ```bash
 make local-dev-up
 make local-dev-up-with-clair
-TEST=true PYTHONPATH="." pytest path/to/test.py -v
+# see agent_docs/testing.md#python-environment for the venv setup
+TEST=true PYTHONPATH="." ./venv/bin/pytest path/to/test.py -v
 make unit-test
 make registry-test
 make types-test

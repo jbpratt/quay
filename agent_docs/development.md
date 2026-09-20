@@ -7,7 +7,8 @@
 - Python 3.12
 - Node 20+
 - pnpm (for frontend development)
-- pre-commit (`pip install pre-commit`)
+- A checkout-local venv with `pre-commit` installed — see
+  `agent_docs/testing.md#python-environment` for setup
 
 ## Starting the Environment
 
