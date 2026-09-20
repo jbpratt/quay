@@ -918,7 +918,8 @@ jq \
   # so attachment_status_map lookups (keyed by this URL) keep resolving.
   def build_attachments: [ .attachments[] | { name, path, url: (if .path then ($artifact_base_url + "/" + (.path | sub(".*/test-results/"; "") | split("/") | map(select(. != "..")) | join("/"))) else null end) } | with_attachment_status ];
   (.config.projects // []) as $projects
-  | ([$projects[]?.metadata.actualWorkers] | map(select(. != null)) | first) as $actual_workers
+  | ([$projects[]?.metadata.actualWorkers] | map(select(. != null)) | first) as $project_actual_workers
+  | (if $project_actual_workers != null then $project_actual_workers else .config.workers end) as $actual_workers
   | ([$projects[]?.retries] | map(select(. != null)) | max) as $retries
   | ([$projects[]?.use.trace] | map(select(. != null)) | first) as $configured_trace
   | ([.. | objects | select(has("attachments")) | .attachments[]? | select(.name == "trace")] | length) as $trace_attachment_count
@@ -947,7 +948,7 @@ jq \
         source_image_digest: { value: ($source_image_digest | nullify), reason: ($source_image_digest_reason | nullify) },
         release_config_revision: { value: ($release_config_revision | nullify), reason: ($release_config_revision_reason | nullify) },
         auth_mode: { value: $auth_mode, reason: $auth_mode_reason },
-        actual_workers: { value: $actual_workers, reason: (if $actual_workers == null then "config.projects[].metadata.actualWorkers not present in results.json" else null end) },
+        actual_workers: { value: $actual_workers, reason: (if $project_actual_workers != null then null elif $actual_workers != null then "config.projects[].metadata.actualWorkers not present in results.json; using root config.workers" else "config.projects[].metadata.actualWorkers and root config.workers not present in results.json" end) },
         retries: { value: $retries, reason: (if $retries == null then "config.projects[].retries not present in results.json" else null end) },
         tracing_configuration: { value: $tracing_value, reason: (if $tracing_value == null then "no config.projects[].use.trace value and no trace attachments found in results.json" else null end) },
         source_clone_sha: { value: ($source_clone_sha | nullify), reason: ($source_clone_sha_reason | nullify) },

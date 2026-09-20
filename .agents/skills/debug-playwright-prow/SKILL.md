@@ -125,7 +125,11 @@ Key fields:
     `prowjob.json`'s `spec.extra_refs` (`org: openshift, repo: release`); usually
     `null` since most jobs don't carry this ref
   - `auth_mode` — always `"anonymous"`; the collector never sends credentials
-  - `actual_workers` / `retries` — from `results.json`'s `config.projects[]`
+  - `actual_workers` — `results.json`'s `config.projects[].metadata.actualWorkers`,
+    falling back to the root `config.workers` when the per-project field is
+    absent; `reason` names which source was absent when the fallback was used
+    (metadata absent, config.workers present) or both were absent
+  - `retries` — from `results.json`'s `config.projects[]`
   - `tracing_configuration` — the configured `use.trace` value when
     `results.json` serializes it, otherwise an inferred note when trace
     attachments are present, otherwise `null`
