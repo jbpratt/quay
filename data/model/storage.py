@@ -305,7 +305,7 @@ def _get_storage(query_modifier):
     return found
 
 
-def with_blob_lock_or_fallback(digest, func, *args, **kwargs):
+def with_blob_lock_or_fallback(digest, func, *args, lock_ttl=30, auto_renewal=False, **kwargs):
     """
     Execute a function with GlobalLock protection, falling back to per-operation locking if unavailable.
 
@@ -321,6 +321,10 @@ def with_blob_lock_or_fallback(digest, func, *args, **kwargs):
     Args:
         digest: Blob digest for lock key (e.g., "sha256:abc123...")
         func: Callable to execute (must accept skip_lock kwarg)
+        lock_ttl: Seconds the lock is held for before it expires (default 30, tuned for a DB-only
+            critical section). Callers wrapping a longer operation, such as a blob storage finalize,
+            should pass a larger ttl and/or auto_renewal=True.
+        auto_renewal: If True, the lock is renewed in the background for as long as it is held.
         *args, **kwargs: Arguments to pass to func
 
     Returns:
@@ -336,12 +340,17 @@ def with_blob_lock_or_fallback(digest, func, *args, **kwargs):
         as the logic that existed before the race condition fix.
     """
     try:
-        with GlobalLock(f"BLOB_DELETE_{digest}", lock_ttl=30):
-            return func(*args, skip_lock=True, **kwargs)
+        lock = GlobalLock(f"BLOB_DELETE_{digest}", lock_ttl=lock_ttl, auto_renewal=auto_renewal)
+        lock.__enter__()
     except LockNotAcquiredException as e:
         logger.warning("Could not acquire lock for blob %s: %s", digest, e)
         logger.warning("Falling back to per-operation locking.")
         return func(*args, skip_lock=False, **kwargs)
+
+    try:
+        return func(*args, skip_lock=True, **kwargs)
+    finally:
+        lock.__exit__(None, None, None)
 
 
 def _get_or_create_blob_with_lock(digest, lock_acquired=True, **blob_attrs):
