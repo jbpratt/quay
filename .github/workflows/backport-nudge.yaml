@@ -1,0 +1,153 @@
+name: Backport Nudge
+
+on:
+  workflow_run:
+    workflows: ["PR Auto-Labeler"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  nudge:
+    name: Backport triage nudge
+    runs-on: ubuntu-latest
+    # pr-labeler.yaml also runs on pull_request_review; this Action has
+    # nothing to say about those.
+    if: |
+      github.event.workflow_run.event == 'pull_request_target' &&
+      github.event.workflow_run.conclusion == 'success'
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
+    steps:
+      - name: Download PR data
+        uses: dawidd6/action-download-artifact@20319c5641d495c8a52e688b7dc5fada6c3a9fbc # v8
+        with:
+          name: pr-data-*
+          name_is_regexp: true
+          workflow: pr-labeler.yaml
+          run_id: ${{ github.event.workflow_run.id }}
+          path: .
+
+      - name: Read PR number
+        id: pr
+        run: |
+          PR_NUMBER=$(cat pr-data-*/pr_number.txt)
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || exit 1
+          echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout backport-nudge script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          PR_JSON=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}")
+          PR_TITLE=$(jq -r '.title' <<<"$PR_JSON")
+          PR_BASE_REF=$(jq -r '.base.ref' <<<"$PR_JSON")
+          PR_STATE=$(jq -r '.state' <<<"$PR_JSON")
+          gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" \
+            --paginate --jq '.[].filename' > changed_files.txt
+
+          export PR_TITLE PR_BASE_REF PR_STATE
+          CHANGED_FILES="$(cat changed_files.txt)" python3 .github/scripts/backport_nudge.py
+
+      - name: Apply triage label and nudge comment
+        if: steps.decide.outputs.nudge == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        with:
+          script: |
+            // Authoritative marker: this literal is what production checks.
+            // backport_nudge.py's MARKER is a Python copy used only by its
+            // unit tests; keep both in sync by hand.
+            const marker = '<!-- backport-nudge -->';
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const labelName = 'needs-backport-triage';
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+            });
+            const hasMarker = comments.some(
+              (comment) =>
+                comment.user?.login === 'github-actions[bot]' && (comment.body || '').includes(marker),
+            );
+            if (hasMarker) {
+              console.log('Nudge comment already present; skipping.');
+              return;
+            }
+
+            try {
+              await github.rest.issues.getLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: labelName,
+              });
+            } catch (error) {
+              if (error.status === 404) {
+                console.log(`Creating label "${labelName}"`);
+                try {
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: labelName,
+                    color: 'FBCA04',
+                    description: 'Needs a human decision on backporting to release branches',
+                  });
+                } catch (createError) {
+                  if (createError.status === 422) {
+                    console.log(`Label "${labelName}" already exists; continuing.`);
+                  } else {
+                    throw createError;
+                  }
+                }
+              } else {
+                throw error;
+              }
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: [labelName],
+            });
+
+            const body = [
+              marker,
+              '**Backport triage**',
+              '',
+              'This change is typed `fix` and touches product code, so the maintained release',
+              'branches may want it. The `needs-backport-triage` label records that a human',
+              'decision is pending; this is a triage note, not an automatic backport.',
+              '',
+              'Backports cascade one branch at a time, newest maintained branch first, and each',
+              "step is cherry-picked from the previous branch's merged PR rather than fanned out",
+              'from master. The newest `redhat-*` branch is kept in sync with master and is',
+              'skipped. For the current branch list and how to confirm it, see the Release',
+              'Branch Model section of `agent_docs/workflow.md`; branch facts go stale at every',
+              'release cut.',
+              '',
+              'A port should differ from master only where the branch forces it, and every',
+              'adaptation should be stated with its reason. A branch whose feature set diverges',
+              'may need a hand-port instead of a bot cherry-pick: immutable tags, for example,',
+              'exist in redhat-3.17 but not in redhat-3.16.',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body,
+            });
