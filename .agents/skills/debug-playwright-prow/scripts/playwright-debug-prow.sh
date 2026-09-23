@@ -134,16 +134,18 @@ echo "GCS base: $GCS_BASE" >&2
 
 # --- Scratch Storage ---
 # Never use system /tmp: downloaded CI artifacts stay under the repo's
-# gitignored tmp/ so a crashed run leaves recoverable, easy-to-find state
-# instead of orphaning files outside the workspace.
+# gitignored tmp/ (or PROW_TRIAGE_TMP, so a caller can nest this run inside
+# its own triage scratch dir) so a crashed run leaves recoverable, easy-to-find
+# state instead of orphaning files outside the workspace.
 if REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
   :
 else
   REPO_ROOT="$PWD"
   echo "WARNING: not inside a git work tree; using \$PWD ($REPO_ROOT) as the repo root for scratch storage" >&2
 fi
-mkdir -p "$REPO_ROOT/tmp"
-WORK_DIR=$(mktemp -d "$REPO_ROOT/tmp/playwright-prow.XXXXXX")
+SCRATCH_PARENT="${PROW_TRIAGE_TMP:-$REPO_ROOT/tmp}"
+mkdir -p "$SCRATCH_PARENT"
+WORK_DIR=$(mktemp -d "$SCRATCH_PARENT/playwright-prow.XXXXXX")
 echo "Downloading artifacts to $WORK_DIR ..." >&2
 
 # --- Check Job Status ---

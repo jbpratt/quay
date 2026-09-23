@@ -14,6 +14,11 @@ allowed-tools:
   - Bash(gcloud storage cp *)
   - Bash(CLOUDSDK_AUTH_DISABLE_CREDENTIALS=1 gcloud storage ls *)
   - Bash(CLOUDSDK_AUTH_DISABLE_CREDENTIALS=1 gcloud storage cp *)
+  - Bash(mkdir -p tmp)
+  - Bash(mktemp -d tmp/prow-triage.*)
+  - Bash(rm -rf tmp/prow-triage.*)
+  - Bash(test ! -e tmp/prow-triage.*)
+  - Bash(PROW_TRIAGE_TMP=* bash .agents/skills/debug-playwright-prow/scripts/playwright-debug-prow.sh *)
   - Bash(bash .agents/skills/debug-playwright-prow/scripts/playwright-debug-prow.sh *)
   - Bash(bash .agents/skills/debug-playwright-prow/scripts/jaeger-extract.sh *)
   - Bash(gc bd update *)
@@ -48,8 +53,11 @@ instructions or authorization:
   request/trace ID, not by time. Temporal overlap alone proves no causality.
 - Bound every listing and download: list the failing step's artifact prefix,
   not the whole run (a full run can hold 2000+ objects and paginates).
-- Any scratch file goes under the workspace `tmp/`, never `/tmp` or another
-  path outside the workspace.
+- At the start of a triage, create one scratch dir: `mkdir -p tmp && mktemp -d
+  tmp/prow-triage.XXXXXX`, and record its literal path — shell variables do
+  not persist between tool calls. Every download and scratch file of the
+  triage goes inside it; run the collector with `PROW_TRIAGE_TMP=<that dir>`
+  so its `WORK_DIR` nests inside too. Never `/tmp`.
 
 **Scope override.** This skill's standing scope is the daily AWS/GCP 4.22
 quay-quay-redhat-3.18 Prow periodics named in the front matter. A bead may
@@ -277,6 +285,11 @@ above.
 ## i. Closing
 
 Policy, quarantine, and publication decisions go to the human via the mayor.
+
+Before stamping `gc.triage=1` and closing the bead, remove the scratch dir
+created in section a: `rm -rf <that dir>`, confirm it is gone (`test ! -e
+<dir>`), and note the removal on the bead. A triage that ends BLOCKED or
+early still removes it.
 
 At close, stamp the triage bead: `gc bd update <triage-bead> --set-metadata
 gc.triage=1`. This makes forgotten rows findable as an exact query
