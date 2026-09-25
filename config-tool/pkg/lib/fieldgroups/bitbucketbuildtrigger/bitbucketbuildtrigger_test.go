@@ -1,13 +1,40 @@
 package bitbucketbuildtrigger
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/quay/quay/config-tool/pkg/lib/shared"
 )
 
+const (
+	goodConsumerKey    = "QUAY_FIXTURE_ONLY-bitbucket-good-key"
+	goodConsumerSecret = "QUAY_FIXTURE_ONLY-bitbucket-good-secret"
+)
+
+// newBitbucketOAuthMockServer mimics Bitbucket's OAuth token endpoint: the
+// "code is not valid" error only comes back for a recognized consumer key and
+// secret, mirroring how a real client id determines the error shape Bitbucket returns.
+func newBitbucketOAuthMockServer(t *testing.T) string {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientID, clientSecret, _ := r.BasicAuth()
+		w.Header().Set("Content-Type", "application/json")
+		if clientID == goodConsumerKey && clientSecret == goodConsumerSecret {
+			w.Write([]byte(`{"error_description":"The specified code is not valid."}`))
+			return
+		}
+		w.Write([]byte(`{"error_description":"invalid_client"}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
 // TestValidateSchema tests the ValidateSchema function
 func TestValidateBitbucketBuildTrigger(t *testing.T) {
+
+	reset := shared.SetBitbucketTokenURLForTesting(newBitbucketOAuthMockServer(t))
+	t.Cleanup(reset)
 
 	// Define test data
 	var tests = []struct {
@@ -23,8 +50,8 @@ func TestValidateBitbucketBuildTrigger(t *testing.T) {
 		{name: "BuildSupportOnBitbucketOnEmptyConsumerKey", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": true, "FEATURE_BITBUCKET_BUILD": true, "BITBUCKET_TRIGGER_CONFIG": map[string]interface{}{"CONSUMER_KEY": ""}}, want: "invalid"},
 		{name: "BuildSupportOnBitbucketOnMissingConsumerSecret", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": true, "FEATURE_BITBUCKET_BUILD": true, "BITBUCKET_TRIGGER_CONFIG": map[string]interface{}{"CONSUMER_KEY": ""}}, want: "invalid"},
 		{name: "BuildSupportOnBitbucketOnEmptyConsumerSecret", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": true, "FEATURE_BITBUCKET_BUILD": true, "BITBUCKET_TRIGGER_CONFIG": map[string]interface{}{"CONSUMER_KEY": "", "CONSUMER_SECRET": ""}}, want: "invalid"},
-		{name: "BuildSupportOnBitbucketOnInvalidConfig", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": true, "FEATURE_BITBUCKET_BUILD": true, "BITBUCKET_TRIGGER_CONFIG": map[string]interface{}{"CONSUMER_KEY": "foo", "CONSUMER_SECRET": "bar"}}, want: "invalid"},
-		{name: "BuildSupportOnBitbucketOnValidConfig", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": true, "FEATURE_BITBUCKET_BUILD": true, "BITBUCKET_TRIGGER_CONFIG": map[string]interface{}{"CONSUMER_KEY": "gsjCjq84wHsm4sH4BH", "CONSUMER_SECRET": "dVr7BbNHaxVer4mbUVeegJusSYrk4e8J"}}, want: "valid"},
+		{name: "BuildSupportOnBitbucketOnInvalidConfig", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": true, "FEATURE_BITBUCKET_BUILD": true, "BITBUCKET_TRIGGER_CONFIG": map[string]interface{}{"CONSUMER_KEY": "QUAY_FIXTURE_ONLY-bitbucket-bad-key", "CONSUMER_SECRET": "QUAY_FIXTURE_ONLY-bitbucket-bad-secret"}}, want: "invalid"},
+		{name: "BuildSupportOnBitbucketOnValidConfig", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": true, "FEATURE_BITBUCKET_BUILD": true, "BITBUCKET_TRIGGER_CONFIG": map[string]interface{}{"CONSUMER_KEY": goodConsumerKey, "CONSUMER_SECRET": goodConsumerSecret}}, want: "valid"},
 	}
 
 	// Iterate through tests

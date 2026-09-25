@@ -1,13 +1,39 @@
 package googlelogin
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/quay/quay/config-tool/pkg/lib/shared"
 )
 
+const (
+	goodClientID     = "QUAY_FIXTURE_ONLY-google-good-id"
+	goodClientSecret = "QUAY_FIXTURE_ONLY-google-good-secret"
+)
+
+// newGoogleOAuthMockServer mimics Google's OAuth token endpoint: a
+// recognized client id and secret gets "invalid_grant" (bad code, good client),
+// anything else gets "invalid_client".
+func newGoogleOAuthMockServer(t *testing.T) string {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("client_id") == goodClientID && r.URL.Query().Get("client_secret") == goodClientSecret {
+			w.Write([]byte(`{"error":"invalid_grant"}`))
+			return
+		}
+		w.Write([]byte(`{"error":"invalid_client"}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
 // TestValidateGoogleLogin tests the Validate function
 func TestValidateGoogleLogin(t *testing.T) {
+
+	reset := shared.SetGoogleTokenURLForTesting(newGoogleOAuthMockServer(t))
+	t.Cleanup(reset)
 
 	// Define test data
 	var tests = []struct {
@@ -19,8 +45,8 @@ func TestValidateGoogleLogin(t *testing.T) {
 		{name: "GoogleLoginNotSpecified", config: map[string]interface{}{}, want: "valid"},
 		{name: "GoogleLoginOnMissingConfig", config: map[string]interface{}{"FEATURE_GOOGLE_LOGIN": true}, want: "invalid"},
 		{name: "GoogleLoginMissingFields", config: map[string]interface{}{"FEATURE_GOOGLE_LOGIN": true, "GOOGLE_LOGIN_CONFIG": map[string]interface{}{}}, want: "invalid"},
-		{name: "GoogleLoginBadCredentials", config: map[string]interface{}{"FEATURE_GOOGLE_LOGIN": true, "GOOGLE_LOGIN_CONFIG": map[string]interface{}{"CLIENT_ID": "bad_id", "CLIENT_SECRET": "bad_secret"}}, want: "invalid"},
-		{name: "GoogleLoginGoodCredentials", config: map[string]interface{}{"FEATURE_GOOGLE_LOGIN": true, "GOOGLE_LOGIN_CONFIG": map[string]interface{}{"CLIENT_ID": "511815388398-ng379ngbt3ivpno3all76540eh11ebu7.apps.googleusercontent.com", "CLIENT_SECRET": "0mQogdczWFnNemnVp5esDuas"}}, want: "valid"},
+		{name: "GoogleLoginBadCredentials", config: map[string]interface{}{"FEATURE_GOOGLE_LOGIN": true, "GOOGLE_LOGIN_CONFIG": map[string]interface{}{"CLIENT_ID": "QUAY_FIXTURE_ONLY-google-bad-id", "CLIENT_SECRET": "QUAY_FIXTURE_ONLY-google-bad-secret"}}, want: "invalid"},
+		{name: "GoogleLoginGoodCredentials", config: map[string]interface{}{"FEATURE_GOOGLE_LOGIN": true, "GOOGLE_LOGIN_CONFIG": map[string]interface{}{"CLIENT_ID": goodClientID, "CLIENT_SECRET": goodClientSecret}}, want: "valid"},
 	}
 
 	// Iterate through tests

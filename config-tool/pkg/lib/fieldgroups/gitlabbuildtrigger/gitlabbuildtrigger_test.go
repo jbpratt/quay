@@ -1,13 +1,38 @@
 package gitlabbuildtrigger
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/quay/quay/config-tool/pkg/lib/shared"
 )
 
+const (
+	goodClientID     = "QUAY_FIXTURE_ONLY-gitlab-good-id"
+	goodClientSecret = "QUAY_FIXTURE_ONLY-gitlab-good-secret"
+)
+
+// newGitLabOAuthMockServer mimics the GitLab OAuth token endpoint that
+// shared.ValidateGitLabOAuth checks: a recognized client id and secret gets
+// "invalid_grant" (bad code, good client), anything else gets "invalid_client".
+func newGitLabOAuthMockServer(t *testing.T) string {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("client_id") == goodClientID && r.URL.Query().Get("client_secret") == goodClientSecret {
+			w.Write([]byte(`{"error":"invalid_grant"}`))
+			return
+		}
+		w.Write([]byte(`{"error":"invalid_client"}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
 // TestValidateGitLabBuildTrigger tests the Validate function
 func TestValidateGitLabBuildTrigger(t *testing.T) {
+
+	fakeEndpoint := newGitLabOAuthMockServer(t)
 
 	// Define test data
 	var tests = []struct {
@@ -19,26 +44,26 @@ func TestValidateGitLabBuildTrigger(t *testing.T) {
 		{name: "FeatureBuildOff", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": false}, want: "valid"},
 		{name: "FeatureGitlabBuildOff", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": true, "FEATURE_GITLAB_BUILD": true}, want: "invalid"},
 		{name: "Valid", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": true, "FEATURE_GITLAB_BUILD": true, "GITLAB_TRIGGER_CONFIG": map[string]interface{}{
-			"CLIENT_ID":       "304c96b0015a469f6cdc907a22acbc5692d8ac2958b19a19a2585811e0c1019f",
-			"CLIENT_SECRET":   "45060b331c39c30bd532eb71c720739d177f1a22238da470eab6a5e19f26057a",
-			"GITLAB_ENDPOINT": "https://gitlab.com",
+			"CLIENT_ID":       goodClientID,
+			"CLIENT_SECRET":   goodClientSecret,
+			"GITLAB_ENDPOINT": fakeEndpoint,
 		}}, want: "valid"},
 		{name: "BadCredentials", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": true, "FEATURE_GITLAB_BUILD": true, "GITLAB_TRIGGER_CONFIG": map[string]interface{}{
-			"CLIENT_ID":       "bad_client_id",
-			"CLIENT_SECRET":   "bad_cluent_secret",
-			"GITLAB_ENDPOINT": "https://endpoint.com",
+			"CLIENT_ID":       "QUAY_FIXTURE_ONLY-gitlab-bad-id",
+			"CLIENT_SECRET":   "QUAY_FIXTURE_ONLY-gitlab-bad-secret",
+			"GITLAB_ENDPOINT": fakeEndpoint,
 		}}, want: "invalid"},
 		{name: "NoClientSecret", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": true, "FEATURE_GITLAB_BUILD": true, "GITLAB_TRIGGER_CONFIG": map[string]interface{}{
 			"CLIENT_ID":       "clientid",
-			"GITHUB_ENDPOINT": "https://endpoint.com",
+			"GITLAB_ENDPOINT": fakeEndpoint,
 		}}, want: "invalid"},
 		{name: "NoClientID", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": true, "FEATURE_GITLAB_BUILD": true, "GITLAB_TRIGGER_CONFIG": map[string]interface{}{
 			"CLIENT_SECRET":   "clientsecret",
-			"GITHUB_ENDPOINT": "https://endpoint.com",
+			"GITLAB_ENDPOINT": fakeEndpoint,
 		}}, want: "invalid"},
 		{name: "NoGitlabEndpoint", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": true, "FEATURE_GITLAB_BUILD": true, "GITLAB_TRIGGER_CONFIG": map[string]interface{}{
-			"CLIENT_ID":     "clientid",
-			"CLIENT_SECRET": "clientsecret",
+			"CLIENT_ID":     goodClientID,
+			"CLIENT_SECRET": goodClientSecret,
 		}}, want: "invalid"},
 		{name: "InvalidGitlabEndpoint", config: map[string]interface{}{"FEATURE_BUILD_SUPPORT": true, "FEATURE_GITLAB_BUILD": true, "GITLAB_TRIGGER_CONFIG": map[string]interface{}{
 			"CLIENT_ID":       "clientid",
