@@ -322,9 +322,8 @@ def test_immutable_tag_survives_obsolete_cleanup(run_skopeo_mock, initialized_db
     An immutable tag cannot be deleted by the mirror's obsolete-tag cleanup.
 
     When an immutable tag exists locally but is absent from the upstream tag
-    list, delete_obsolete_tags() calls delete_tag() which raises
-    ImmutableTagException. The outer except in perform_mirror() catches this,
-    setting the mirror to FAIL — but the immutable tag remains alive.
+    list, delete_obsolete_tags() skips it (logging a warning) and continues
+    cleanup, so the immutable tag remains alive and the sync succeeds.
     """
     mirror, repo = create_mirror_repo_robot(
         ["*"],
@@ -357,7 +356,7 @@ def test_immutable_tag_survives_obsolete_cleanup(run_skopeo_mock, initialized_db
     assert "v1.0" in names
 
     mirror = RepoMirrorConfig.get_by_id(mirror.id)
-    assert mirror.sync_status == RepoMirrorStatus.FAIL
+    assert mirror.sync_status == RepoMirrorStatus.SUCCESS
 
 
 # ===========================================================================

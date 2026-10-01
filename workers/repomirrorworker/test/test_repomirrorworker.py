@@ -7,8 +7,9 @@ logger = logging.getLogger(__name__)
 import mock
 import pytest
 
-from data.database import Manifest, RepoMirrorConfig, RepoMirrorStatus
+from data.database import Manifest, RepoMirrorConfig, RepoMirrorStatus, Tag
 from data.encryption import DecryptionFailureException
+from data.model.oci.tag import get_tag
 from data.model.test.test_repo_mirroring import create_mirror_repo_robot
 from data.model.user import retrieve_robot_token
 from test.fixtures import *
@@ -498,6 +499,79 @@ def test_rollback(
     assert [] == expected_delete_calls
 
 
+@disable_existing_mirrors
+@mock.patch("util.repomirror.skopeomirror.SkopeoMirror.run_skopeo")
+def test_sync_skips_immutable_obsolete_tags(run_skopeo_mock, initialized_db, app):
+    """
+    A sync must not fail when obsolete-tag cleanup encounters an immutable tag:
+    the immutable tag is skipped, the remaining obsolete tags are still deleted,
+    and the overall sync status is SUCCESS.
+    """
+
+    mirror, repo = create_mirror_repo_robot(["keep"])
+    _create_tag(repo, "protected")
+    _create_tag(repo, "stale")
+
+    protected_tag = get_tag(repo.id, "protected")
+    Tag.update(immutable=True).where(Tag.id == protected_tag.id).execute()
+
+    skopeo_calls = [
+        {
+            "args": [
+                "/usr/bin/skopeo",
+                "list-tags",
+                "--tls-verify=True",
+                "docker://registry.example.com/namespace/repository",
+            ],
+            "results": SkopeoResults(True, [], '{"Tags": ["keep"]}', ""),
+        },
+        {
+            "args": [
+                "/usr/bin/skopeo",
+                "copy",
+                "--all",
+                "--remove-signatures",
+                "--src-tls-verify=True",
+                "--dest-tls-verify=True",
+                "--dest-creds",
+                "%s:%s"
+                % (mirror.internal_robot.username, retrieve_robot_token(mirror.internal_robot)),
+                "docker://registry.example.com/namespace/repository:keep",
+                "docker://localhost:5000/mirror/repo:keep",
+            ],
+            "results": SkopeoResults(True, [], "Success", ""),
+        },
+    ]
+
+    def skopeo_test(args, proxy, timeout=300):
+        try:
+            skopeo_call = skopeo_calls.pop(0)
+            _assert_skopeo_args(args, skopeo_call["args"])
+            assert proxy == {}
+
+            if args[1] == "copy" and args[-2].endswith(":keep"):
+                _create_tag(repo, "keep")
+
+            return skopeo_call["results"]
+        except Exception as e:
+            skopeo_calls.append(skopeo_call)
+            raise e
+
+    run_skopeo_mock.side_effect = skopeo_test
+
+    worker = RepoMirrorWorker()
+    worker._process_mirrors()
+
+    assert [] == skopeo_calls
+
+    mirror = RepoMirrorConfig.get(id=mirror.id)
+    assert mirror.sync_status == RepoMirrorStatus.SUCCESS
+
+    assert get_tag(repo.id, "keep") is not None
+    assert get_tag(repo.id, "protected") is not None
+    assert get_tag(repo.id, "stale") is None
+
+
 def test_remove_obsolete_tags(initialized_db):
     """
     As part of the mirror, the set of tags on the remote repository is compared to the local
@@ -514,6 +588,27 @@ def test_remove_obsolete_tags(initialized_db):
     deleted_tags = delete_obsolete_tags(mirror, incoming_tags)
 
     assert [tag.name for tag in deleted_tags] == ["oldtag"]
+
+
+def test_remove_obsolete_tags_skips_immutable(initialized_db):
+    """
+    An immutable obsolete tag must be skipped, not abort cleanup of the
+    remaining obsolete tags.
+    """
+
+    mirror, repository = create_mirror_repo_robot(["keep"], repo_name="removed_immutable")
+
+    _create_tag(repository, "protected")
+    _create_tag(repository, "stale")
+
+    protected_tag = get_tag(repository.id, "protected")
+    Tag.update(immutable=True).where(Tag.id == protected_tag.id).execute()
+
+    deleted_tags = delete_obsolete_tags(mirror, ["keep"])
+
+    assert [tag.name for tag in deleted_tags] == ["stale"]
+    assert get_tag(repository.id, "protected") is not None
+    assert get_tag(repository.id, "stale") is None
 
 
 @disable_existing_mirrors
