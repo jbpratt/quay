@@ -26,6 +26,7 @@ from data.database import (
 )
 from data.encryption import DecryptionFailureException
 from data.logs_model import logs_model
+from data.model import ImmutableTagException
 from data.model import repository as repository_model
 from data.model.oci.tag import delete_tag, lookup_alive_tags_shallow, retarget_tag
 from data.model.org_mirror import (
@@ -765,11 +766,20 @@ def delete_obsolete_tags(mirror, tags):
     existing_tags, _ = lookup_alive_tags_shallow(mirror.repository.id)
     obsolete_tags = list([tag for tag in existing_tags if tag.name not in tags])
 
+    deleted_tags = []
     for tag in obsolete_tags:
         logger.debug("Repo mirroring delete obsolete tag '%s'" % tag.name)
-        delete_tag(mirror.repository, tag.name)
+        try:
+            delete_tag(mirror.repository, tag.name)
+        except ImmutableTagException:
+            logger.warning(
+                "Repo mirroring skipping immutable obsolete tag '%s' in repository '%s/%s'"
+                % (tag.name, mirror.repository.namespace_user.username, mirror.repository.name)
+            )
+            continue
+        deleted_tags.append(tag)
 
-    return obsolete_tags
+    return deleted_tags
 
 
 def _get_v2_bearer_token(server, scheme, namespace, repo_name, username, password, verify_tls):
