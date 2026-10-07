@@ -36,12 +36,15 @@ def fake_azure_storage(files=None):
         filename = url.path[len(container_prefix) + 1 :]
 
         if request.method == "GET":
+            content = files.get(filename) if filename in files else ""
             return {
                 "status_code": 200 if filename in files else 404,
                 "headers": {
                     "ETag": "foobar",
+                    "Content-Length": str(len(content)),
+                    "Content-Range": "bytes 0-%d/%d" % (max(len(content) - 1, 0), len(content)),
                 },
-                "content": files.get(filename) if filename in files else "",
+                "content": content,
             }
 
         if request.method == "HEAD":
