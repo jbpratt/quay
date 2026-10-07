@@ -17,12 +17,11 @@ RUN set -ex\
 	; microdnf -y module enable nginx:1.24 \
 	; microdnf -y --setopt=tsflags=nodocs install \
 		python3.12 \
-		python3.12-pip \
 		glibc-langpack-en \
 		dnsmasq \
 		memcached \
 		nginx \
-		libpq-devel \
+		libpq \
 		libjpeg-turbo \
 		openldap \
 		openssl \
@@ -46,6 +45,8 @@ RUN set -ex\
 		ninja-build \
 		openldap-devel \
 		python3.12-devel \
+		python3.12-pip \
+		libpq-devel \
 		libffi-devel \
         openssl-devel \
         diffutils \
