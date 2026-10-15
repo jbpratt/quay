@@ -59,6 +59,9 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
     "test:e2e:headed": "playwright test --headed",
+    "design:capture": "playwright test -c playwright/design.config.ts playwright/design/capture.spec.ts",
+    "design:a11y": "playwright test -c playwright/design.config.ts playwright/design/a11y-smoke.spec.ts",
+    "design:contact-sheet": "node playwright/contact-sheet.mjs",
     "start:integration": "serve -s dist -l 9000"
   },
   "browserslist": {

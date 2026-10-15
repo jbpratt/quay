@@ -528,6 +528,16 @@ test.describe('Multi-Arch Tests', {tag: ['@container']}, () => {
 });
 ```
 
+## Design Dev Tools (not CI)
+
+`playwright/design/` holds dev-only specs run through `playwright/design.config.ts`, outside the default `testDir`, so CI never runs them. No baselines are committed.
+
+- `npm run design:capture` - full-page light and dark PNGs of the routes in `design/routes.ts` to `$DESIGN_SHOTS_DIR` (default `test-results/design/shots`, under `test-results/`, which Playwright clears on each run).
+- `npm run design:a11y` - smoke heuristic for console errors, 420px overflow, 24x24 targets and text contrast; not a WCAG audit.
+- `npm run design:contact-sheet -- <beforeDir> <afterDir> <out.html>` - before/after grid as HTML plus `<out>.png`.
+
+Before/after: `DESIGN_SHOTS_DIR=/tmp/shots/before npm run design:capture` on the base branch, the same with `/tmp/shots/after` on the change, then `npm run design:contact-sheet -- /tmp/shots/before /tmp/shots/after /tmp/shots/sheet.html`.
+
 ## Common Gotchas
 
 | Issue               | What to Know                                                                                                                                                                                                                                                                                                                                           |
