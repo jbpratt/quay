@@ -10,7 +10,7 @@ Run the following commands to get started
 ```bash
 git clone https://github.com/quay/quay-ui.git
 cd quay-ui
-npm install
+pnpm install
 ```
 
 ## Development

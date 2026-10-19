@@ -6,6 +6,7 @@
     "appname": "quay"
   },
   "homepage": ".",
+  "packageManager": "pnpm@10.34.4",
   "dependencies": {
     "@patternfly/patternfly": "^6.0.0",
     "@patternfly/react-charts": "^8.0.0",
@@ -163,7 +164,8 @@
       "js-yaml": "^4.3.0",
       "qs": "^6.16.0",
       "browserslist": ">=4.28.7",
-      "compression": "1.8.2"
+      "compression": "1.8.2",
+      "schema-utils@4": "4.3.3"
     }
   }
 }
