@@ -7,3 +7,6 @@ artifacts:
   - download_url: "https://github.com/prometheus/pushgateway/releases/download/v1.11.1/pushgateway-1.11.1.linux-amd64.tar.gz"
     checksum: "sha256:6ce6ffab84d0d71195036326640295c02165462abd12b8092b0fa93188f5ee37"
     filename: "pushgateway-1.11.1.linux-amd64.tar.gz"
+  - download_url: "https://registry.npmjs.org/pnpm/-/pnpm-10.34.4.tgz"
+    checksum: "sha256:98cd5718dbd8c4b2689156493b9596cecf6b64b1a98d4a087e82135a175b40eb"
+    filename: "pnpm-10.34.4.tgz"

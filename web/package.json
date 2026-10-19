@@ -6,6 +6,7 @@
     "appname": "quay"
   },
   "homepage": ".",
+  "packageManager": "pnpm@10.34.4",
   "dependencies": {
     "@patternfly/patternfly": "^6.0.0",
     "@patternfly/react-charts": "^8.0.0",

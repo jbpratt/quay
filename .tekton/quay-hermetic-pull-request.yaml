@@ -19,6 +19,8 @@ metadata:
         || "rpms.lock.yaml".pathChanged()
         || "ubi.repo".pathChanged()
         || "artifacts.lock.yaml".pathChanged()
+        || "web/pnpm-lock.yaml".pathChanged()
+        || "web/package.json".pathChanged()
         || "rust-builddeps/***".pathChanged()
         || ".tekton/quay-hermetic-pull-request.yaml".pathChanged()
       )
@@ -64,7 +66,7 @@ spec:
       [
         {"type": "gomod", "path": "./config-tool"},
         {"type": "pip", "path": "."},
-        {"type": "npm", "path": "./web"},
+        {"type": "pnpm", "path": "./web"},
         {"type": "npm", "path": "."},
         {"type": "rpm", "path": "."},
         {"type": "cargo", "path": "./rust-builddeps"},

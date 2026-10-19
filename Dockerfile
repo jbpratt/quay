@@ -111,7 +111,7 @@ RUN if [ "$BUILD_ANGULAR" = "true" ]; then npm run --quiet build; fi
 
 # Build React UI
 FROM registry.access.redhat.com/ubi9/nodejs-22-minimal:9.8@sha256:fc8e8ebdb189d074d6448db56baf78edb4f26e7017dcb1c235bf9420eb028cd1 AS build-ui
-RUN npm install -g pnpm@10
+RUN npm install -g pnpm@10.34.4
 WORKDIR /opt/app-root
 COPY --chown=1001:0 web/package.json web/pnpm-lock.yaml web/.npmrc  ./
 RUN pnpm install --frozen-lockfile

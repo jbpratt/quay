@@ -34,24 +34,12 @@ repos:
         language: script
         pass_filenames: false
         stages: [pre-commit]
-    -   id: npm-lockfile-sync
-        name: Sync npm lockfile with pnpm changes
-        entry: bash -c 'if git diff --cached --name-only | grep -qE "^web/(pnpm-lock\.yaml|package\.json)$"; then cd web && npm install --package-lock-only --legacy-peer-deps --silent 2>/dev/null && git add package-lock.json; fi'
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
-    -   id: lockfile-resolved-check
-        name: Check lockfile has resolved URLs
-        entry: .github/hooks/check-lockfile-resolved.sh
-        language: script
-        files: ^web/package-lock\.json$
-        stages: [pre-commit]
     -   id: eslint
         name: ESLint
         entry: .github/hooks/run-eslint.sh
         language: script
         files: ^web/.*\.(js|jsx|ts|tsx)$
-        exclude: ^web/Containerfile|^web/Dockerfile|^web/pnpm-lock\.yaml|^web/package-lock\.json
+        exclude: ^web/Containerfile|^web/Dockerfile|^web/pnpm-lock\.yaml
     -   id: check-playwright-tags
         name: Check Playwright required usage tags
         entry: .github/hooks/check-playwright-tags.sh
