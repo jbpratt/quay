@@ -11,6 +11,8 @@ test.describe(
     let testRepo: {namespace: string; name: string; fullName: string};
 
     test.beforeAll(async ({userContext, cachedContainerAvailable}) => {
+      // The multi-arch push plus a second push can exceed the default hook timeout on slow arches
+      test.setTimeout(180000);
       // Skip setup if registry image tooling is unavailable (tests auto-skip via @container tag)
       if (!cachedContainerAvailable) return;
 
