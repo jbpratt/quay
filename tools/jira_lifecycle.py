@@ -58,7 +58,10 @@ def _evaluate(title, branch, actor, target, fixture, require_all_merged=False):
         )
     expected = fixture["target_versions"].get(branch)
     if expected is None:
-        reasons.append(f"no Target Version is configured for branch {branch}")
+        if branch is None:
+            reasons.append("no Target Version is configured: base branch unknown")
+        else:
+            reasons.append(f"no Target Version is configured for branch {branch}")
         return {**out, "result": "guidance", "reasons": reasons}
     versions = issue["fields"].get(TARGET_VERSION_FIELD) or []
     if versions != [expected]:

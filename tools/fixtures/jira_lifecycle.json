@@ -5,7 +5,7 @@
     "redhat-3.17": "quay-v3.17.z"
   },
   "valid_states": ["NEW", "ASSIGNED", "POST"],
-  "trusted_users": ["fake-maintainer"],
+  "trusted_users": ["fake_maintainer"],
   "pulls": {
     "90001": {"base": "master"},
     "90003": {"base": "redhat-3.18"}
@@ -53,6 +53,18 @@
       "status": "POST",
       "fields": {"customfield_10855": ["quay-v5.0.0"]},
       "transitions": [{"id": "41", "to": "MODIFIED"}],
+      "all_linked_prs_merged": false
+    },
+    "PROJQUAY-90008": {
+      "status": "NEW",
+      "fields": {"customfield_10855": ["quay-v5.0.0"]},
+      "transitions": [{"id": "11", "to": "ASSIGNED"}, {"id": "31", "to": "POST"}],
+      "all_linked_prs_merged": false
+    },
+    "PROJQUAY-90009": {
+      "status": "NEW",
+      "fields": {"customfield_10855": ["quay-v5.0.0"]},
+      "transitions": [{"id": "11", "to": "ASSIGNED"}],
       "all_linked_prs_merged": false
     }
   }

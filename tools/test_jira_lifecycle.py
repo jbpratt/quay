@@ -14,8 +14,8 @@ FIXTURE_PATH = os.path.join(HERE, "fixtures", "jira_lifecycle.json")
 with open(FIXTURE_PATH) as f:
     FIXTURE = json.load(f)
 
-TRUSTED = "fake-maintainer"
-UNTRUSTED = "fake-contributor"
+TRUSTED = "fake_maintainer"
+UNTRUSTED = "fake_contributor"
 
 
 def pr_event(title, action="opened", branch="master", author=TRUSTED, merged=False):
@@ -31,11 +31,13 @@ def pr_event(title, action="opened", branch="master", author=TRUSTED, merged=Fal
     }
 
 
-def comment_event(body, commenter=TRUSTED, title="PROJQUAY-90001: fix(api): x", state="open"):
+def comment_event(
+    body, commenter=TRUSTED, title="PROJQUAY-90001: fix(api): x", state="open", number=90001
+):
     return {
         "action": "created",
         "issue": {
-            "number": 90001,
+            "number": number,
             "title": title,
             "state": state,
             "pull_request": {"url": "https://api.github.com/repos/quay/quay/pulls/90001"},
@@ -106,6 +108,11 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(plan["result"], "guidance")
         self.assertIsNone(plan["transition"])
 
+    def test_unknown_base_branch_is_guidance(self):
+        plan = run_comment("/jira refresh", number=90002)
+        self.assertEqual(plan["result"], "guidance")
+        self.assertIn("no Target Version is configured: base branch unknown", plan["reasons"])
+
 
 class TestTransitions(unittest.TestCase):
     def test_untrusted_opened_validates_without_transition(self):
@@ -123,6 +130,17 @@ class TestTransitions(unittest.TestCase):
         self.assertEqual(plan["result"], "valid")
         self.assertIsNone(plan["transition"])
         self.assertIn("another linked PR is not merged", plan["reasons"])
+
+    def test_transition_chosen_by_destination_name(self):
+        plan = run_pr("PROJQUAY-90008: fix: x")
+        self.assertEqual(plan["result"], "valid")
+        self.assertEqual(plan["transition"], {"id": "31", "to": "POST"})
+
+    def test_no_transition_to_target(self):
+        plan = run_pr("PROJQUAY-90009: fix: x")
+        self.assertEqual(plan["result"], "valid")
+        self.assertIsNone(plan["transition"])
+        self.assertIn("no transition to POST from NEW", plan["reasons"])
 
     def test_unmerged_close_ignored(self):
         plan = run_pr("PROJQUAY-90002: fix: x", action="closed", merged=False)
@@ -216,7 +234,3 @@ class TestInertInput(unittest.TestCase):
                     FIXTURE_PATH,
                 ]
             )
-
-
-if __name__ == "__main__":
-    unittest.main()
