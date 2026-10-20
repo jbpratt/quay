@@ -1039,13 +1039,17 @@ test.describe(
         .getByText('Mutable labels')
         .click();
 
+      await expect(
+        authenticatedPage
+          .getByRole('dialog', {name: 'Edit labels'})
+          .getByText('test=value'),
+      ).toBeVisible();
+
       const saveLabelsButton = authenticatedPage.getByRole('button', {
         name: 'Save Labels',
       });
       await expect(saveLabelsButton).toBeEnabled({timeout: 15000});
-      // Use force:true to bypass Playwright's actionability checks that can
-      // race with React re-renders making the button briefly "unstable".
-      await saveLabelsButton.click({force: true});
+      await saveLabelsButton.click();
 
       // Verify success alert appears exactly once and no crash
       const successAlert = authenticatedPage.getByText(

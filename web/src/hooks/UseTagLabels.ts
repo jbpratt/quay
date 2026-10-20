@@ -23,7 +23,8 @@ export function useLabels(
 
   const {
     data: initialLabels,
-    isLoading: loading,
+    isLoading,
+    isFetching,
     isError: error,
   } = useQuery(
     ['namespace', org, 'repo', repo, 'digest', digest, 'labels'],
@@ -40,6 +41,10 @@ export function useLabels(
       },
     },
   );
+
+  // labels are replaced by the fetch's onSuccess, so editing while a fetch
+  // (including a refetch over cached data) is in flight would be wiped.
+  const loading = isLoading || (shouldFetch && isFetching);
 
   // Use effect to set cached labels without causing infinite render
   useEffect(() => {

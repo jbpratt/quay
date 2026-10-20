@@ -48,6 +48,22 @@ describe('useLabels', () => {
     await waitFor(() => expect(result.current.labels).toEqual(mockLabels));
   });
 
+  it('stays loading until the labels fetch resolves', async () => {
+    let resolveFetch: (labels: []) => void;
+    vi.mocked(getLabels).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+    const {result} = renderHook(
+      () => useLabels('myorg', 'myrepo', 'sha256:abc'),
+      {wrapper},
+    );
+    expect(result.current.loading).toBe(true);
+    resolveFetch([]);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  });
+
   it('calls bulkCreateLabels on createLabels mutate', async () => {
     vi.mocked(getLabels).mockResolvedValueOnce([]);
     vi.mocked(bulkCreateLabels).mockResolvedValueOnce(undefined);
