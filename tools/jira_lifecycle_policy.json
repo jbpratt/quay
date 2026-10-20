@@ -1,0 +1,21 @@
+{
+  "source": "openshift/release core-services/jira-lifecycle-plugin/config.yaml@e1dfc064aff orgs.quay.repos.quay",
+  "target_versions": {
+    "master": "quay-v5.1.0",
+    "redhat-3.10": "quay-v3.10.z",
+    "redhat-3.11": "quay-v3.11.z",
+    "redhat-3.12": "quay-v3.12.z",
+    "redhat-3.13": "quay-v3.13.z",
+    "redhat-3.14": "quay-v3.14.z",
+    "redhat-3.15": "quay-v3.15.z",
+    "redhat-3.16": "quay-v3.16.z",
+    "redhat-3.17": "quay-v3.17.z",
+    "redhat-3.18": "quay-v3.18.z",
+    "redhat-5.0": "quay-v5.0.z"
+  },
+  "valid_states": ["NEW", "ASSIGNED", "POST"],
+  "allowed_security_levels": ["default", "Red Hat Employee", "Red Hat Partner"],
+  "state_after_validation": "POST",
+  "state_after_merge": "MODIFIED",
+  "state_after_close": "NEW"
+}

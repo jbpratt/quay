@@ -1,0 +1,44 @@
+name: Jira Lifecycle (shadow)
+
+# Shadow mode of a GitHub Actions replacement for the Prow jira-lifecycle-plugin,
+# which stays the only writer. pull_request_target and issue_comment run the base
+# branch's code; the job never checks out or runs PR head code. It reads GitHub and
+# Jira with GET requests only and publishes the plan it would apply. Secrets and
+# event data reach the script through env and $GITHUB_EVENT_PATH, never ${{ }} in run:.
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] base-branch checkout only, read-only token, GET-only Jira reads
+    types: [opened, edited, reopened, closed]
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  plan:
+    name: Jira lifecycle plan (shadow)
+    if: github.event_name == 'pull_request_target' || (github.event.issue.pull_request && contains(github.event.comment.body, '/jira refresh'))
+    runs-on: ubuntu-latest
+    environment: jira-lifecycle
+    concurrency:
+      group: jira-lifecycle-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Plan Jira lifecycle actions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        run: |
+          python3 tools/jira_lifecycle.py --event "$GITHUB_EVENT_NAME" --payload "$GITHUB_EVENT_PATH" \
+            --source live --dry-run > "$RUNNER_TEMP/plan.json"
+          cat "$RUNNER_TEMP/plan.json"
+          { echo '```json'; cat "$RUNNER_TEMP/plan.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

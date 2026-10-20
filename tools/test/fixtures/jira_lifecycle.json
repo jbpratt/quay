@@ -1,0 +1,64 @@
+{
+  "trusted_users": ["fake_maintainer"],
+  "pulls": {
+    "90001": {"base": "master"},
+    "90003": {"base": "redhat-3.18"}
+  },
+  "issues": {
+    "PROJQUAY-90001": {
+      "status": "ASSIGNED",
+      "target_versions": ["quay-v5.1.0"],
+      "transitions": [{"id": "31", "to": "POST"}]
+    },
+    "PROJQUAY-90002": {
+      "status": "POST",
+      "target_versions": ["quay-v5.1.0"],
+      "transitions": [{"id": "41", "to": "MODIFIED"}],
+      "linked_prs": [{"number": 90200, "open": false, "merged": true}]
+    },
+    "PROJQUAY-90003": {
+      "status": "NEW",
+      "target_versions": ["quay-v3.18.z"],
+      "transitions": [{"id": "31", "to": "POST"}]
+    },
+    "PROJQUAY-90004": {
+      "status": "CLOSED",
+      "target_versions": ["quay-v5.1.0"],
+      "transitions": []
+    },
+    "PROJQUAY-90005": {
+      "status": "ASSIGNED",
+      "target_versions": ["quay-v3.18.z", "quay-v5.1.0"],
+      "transitions": [{"id": "31", "to": "POST"}]
+    },
+    "PROJQUAY-90006": {
+      "status": "ASSIGNED",
+      "security": "FAKE-EMBARGOED-LEVEL",
+      "summary": "FAKE-RESTRICTED-SUMMARY",
+      "target_versions": ["quay-v5.1.0"],
+      "transitions": [{"id": "31", "to": "POST"}]
+    },
+    "PROJQUAY-90007": {
+      "status": "POST",
+      "target_versions": ["quay-v5.1.0"],
+      "transitions": [{"id": "41", "to": "MODIFIED"}, {"id": "51", "to": "NEW"}],
+      "linked_prs": [{"number": 90201, "open": true, "merged": false}]
+    },
+    "PROJQUAY-90008": {
+      "status": "NEW",
+      "target_versions": ["quay-v5.1.0"],
+      "transitions": [{"id": "11", "to": "ASSIGNED"}, {"id": "31", "to": "POST"}]
+    },
+    "PROJQUAY-90009": {
+      "status": "NEW",
+      "target_versions": ["quay-v5.1.0"],
+      "transitions": [{"id": "11", "to": "ASSIGNED"}]
+    },
+    "PROJQUAY-90010": {
+      "status": "POST",
+      "target_versions": ["quay-v5.1.0"],
+      "transitions": [{"id": "51", "to": "NEW"}],
+      "linked_prs": [{"number": 90202, "open": false, "merged": false}]
+    }
+  }
+}
