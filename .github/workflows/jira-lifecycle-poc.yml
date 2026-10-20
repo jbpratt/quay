@@ -1,0 +1,36 @@
+name: Jira Lifecycle POC
+
+# Read-only dry run of a GitHub Actions replacement for the Prow
+# jira-lifecycle-plugin. pull_request_target and issue_comment run the base
+# branch's code; this job never checks out or runs PR head code, has no
+# secrets, and only reads. Event data reaches the script through
+# $GITHUB_EVENT_PATH, never through ${{ }} in run:.
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] base-branch checkout only, read-only token, no secrets
+    types: [opened, edited, reopened, closed]
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  plan:
+    name: Jira lifecycle plan (dry run)
+    if: github.event_name == 'pull_request_target' || github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Plan Jira lifecycle actions
+        run: |
+          python3 tools/jira_lifecycle.py --event "$GITHUB_EVENT_NAME" --payload "$GITHUB_EVENT_PATH" \
+            --jira-fixture tools/fixtures/jira_lifecycle.json --dry-run > "$RUNNER_TEMP/plan.json"
+          cat "$RUNNER_TEMP/plan.json"
+          { echo '```json'; cat "$RUNNER_TEMP/plan.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,59 @@
+{
+  "target_versions": {
+    "master": "quay-v5.0.0",
+    "redhat-3.18": "quay-v3.18.z",
+    "redhat-3.17": "quay-v3.17.z"
+  },
+  "valid_states": ["NEW", "ASSIGNED", "POST"],
+  "trusted_users": ["fake-maintainer"],
+  "pulls": {
+    "90001": {"base": "master"},
+    "90003": {"base": "redhat-3.18"}
+  },
+  "issues": {
+    "PROJQUAY-90001": {
+      "status": "ASSIGNED",
+      "fields": {"customfield_10855": ["quay-v5.0.0"]},
+      "transitions": [{"id": "31", "to": "POST"}],
+      "all_linked_prs_merged": false
+    },
+    "PROJQUAY-90002": {
+      "status": "POST",
+      "fields": {"customfield_10855": ["quay-v5.0.0"]},
+      "transitions": [{"id": "41", "to": "MODIFIED"}],
+      "all_linked_prs_merged": true
+    },
+    "PROJQUAY-90003": {
+      "status": "NEW",
+      "fields": {"customfield_10855": ["quay-v3.18.z"]},
+      "transitions": [{"id": "31", "to": "POST"}],
+      "all_linked_prs_merged": false
+    },
+    "PROJQUAY-90004": {
+      "status": "CLOSED",
+      "fields": {"customfield_10855": ["quay-v5.0.0"]},
+      "transitions": [],
+      "all_linked_prs_merged": true
+    },
+    "PROJQUAY-90005": {
+      "status": "ASSIGNED",
+      "fields": {"customfield_10855": ["quay-v3.18.z", "quay-v5.0.0"]},
+      "transitions": [{"id": "31", "to": "POST"}],
+      "all_linked_prs_merged": false
+    },
+    "PROJQUAY-90006": {
+      "status": "ASSIGNED",
+      "restricted": true,
+      "summary": "FAKE-RESTRICTED-SUMMARY",
+      "fields": {"customfield_10855": ["quay-v5.0.0"]},
+      "transitions": [{"id": "31", "to": "POST"}],
+      "all_linked_prs_merged": false
+    },
+    "PROJQUAY-90007": {
+      "status": "POST",
+      "fields": {"customfield_10855": ["quay-v5.0.0"]},
+      "transitions": [{"id": "41", "to": "MODIFIED"}],
+      "all_linked_prs_merged": false
+    }
+  }
+}
