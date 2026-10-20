@@ -18,9 +18,10 @@ TRUSTED = "fake_maintainer"
 UNTRUSTED = "fake_contributor"
 
 
-def pr_event(title, action="opened", branch="master", author=TRUSTED, merged=False):
+def pr_event(title, action="opened", branch="master", author=TRUSTED, sender=TRUSTED, merged=False):
     return {
         "action": action,
+        "sender": {"login": sender},
         "pull_request": {
             "number": 90001,
             "title": title,
@@ -32,10 +33,16 @@ def pr_event(title, action="opened", branch="master", author=TRUSTED, merged=Fal
 
 
 def comment_event(
-    body, commenter=TRUSTED, title="PROJQUAY-90001: fix(api): x", state="open", number=90001
+    body,
+    commenter=TRUSTED,
+    title="PROJQUAY-90001: fix(api): x",
+    state="open",
+    number=90001,
+    sender=None,
 ):
     return {
         "action": "created",
+        "sender": {"login": sender or commenter},
         "issue": {
             "number": number,
             "title": title,
@@ -116,9 +123,26 @@ class TestValidation(unittest.TestCase):
 
 class TestTransitions(unittest.TestCase):
     def test_untrusted_opened_validates_without_transition(self):
-        plan = run_pr("PROJQUAY-90001: fix: x", author=UNTRUSTED)
+        plan = run_pr("PROJQUAY-90001: fix: x", sender=UNTRUSTED)
         self.assertEqual(plan["result"], "valid")
         self.assertIsNone(plan["transition"])
+
+    def test_untrusted_sender_on_trusted_author_pr_no_transition(self):
+        plan = run_pr("PROJQUAY-90001: fix: x", author=TRUSTED, sender=UNTRUSTED)
+        self.assertEqual(plan["result"], "valid")
+        self.assertIsNone(plan["transition"])
+        self.assertIn(f"{UNTRUSTED} is not trusted, so no transition is planned", plan["reasons"])
+
+    def test_trusted_sender_merges_untrusted_author_pr(self):
+        plan = run_pr(
+            "PROJQUAY-90002: fix: x",
+            action="closed",
+            merged=True,
+            author=UNTRUSTED,
+            sender=TRUSTED,
+        )
+        self.assertEqual(plan["result"], "valid")
+        self.assertEqual(plan["transition"], {"id": "41", "to": "MODIFIED"})
 
     def test_trusted_merged_all_linked_merged(self):
         plan = run_pr("PROJQUAY-90002: fix: x", action="closed", merged=True)

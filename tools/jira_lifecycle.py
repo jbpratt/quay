@@ -100,7 +100,7 @@ def _plan_pull_request(payload, fixture):
         **_evaluate(
             pr["title"],
             pr["base"]["ref"],
-            pr["user"]["login"],
+            payload["sender"]["login"],
             target,
             fixture,
             require_all_merged=action == "closed",
