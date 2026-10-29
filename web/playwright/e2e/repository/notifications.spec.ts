@@ -821,7 +821,13 @@ test.describe('Repository Notifications', {tag: ['@repository']}, () => {
       if (!(await menuItem.isVisible({timeout: 2000}).catch(() => false))) {
         skippedEvents.push(eventName);
         await authenticatedPage.keyboard.press('Escape');
-        await authenticatedPage.keyboard.press('Escape');
+        // The drawer has no Escape handler; an open panel intercepts the next click
+        await authenticatedPage
+          .getByRole('button', {name: 'Close drawer panel'})
+          .click();
+        await expect(
+          authenticatedPage.getByTestId('create-notification-form'),
+        ).toBeHidden();
         continue;
       }
       await menuItem.click();
