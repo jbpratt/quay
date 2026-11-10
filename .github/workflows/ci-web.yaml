@@ -438,18 +438,49 @@ jobs:
           mkdir -p all-blob-reports
           find blob-results -name '*.zip' -exec cp {} all-blob-reports/ \; 2>/dev/null
           if [ "$(ls -A all-blob-reports 2>/dev/null)" ]; then
-            npx playwright merge-reports --reporter=html,json all-blob-reports
+            npx playwright merge-reports --reporter=html,json,github all-blob-reports
           else
             echo "::warning::No blob reports found. Test reports were not generated."
           fi
+
+      - name: Summarize test results
+        if: always()
+        continue-on-error: true
+        run: |
+          RESULTS=web/test-results/results.json
+          if [ ! -f "$RESULTS" ]; then
+            echo "Playwright: no results.json was produced." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          jq -r '
+            def section($name; $status):
+              [.. | .specs? // empty | .[] | . as $spec | .tests[]
+                | select(.status == $status)
+                | "- `\($spec.file):\($spec.line)` \($spec.title)"] as $l
+              | if ($l | length) == 0 then empty
+                else "", "### \($name) (\($l | length))", "", $l[:30][],
+                  (if ($l | length) > 30 then "- ...and \(($l | length) - 30) more" else empty end)
+                end;
+            "## Playwright results",
+            "",
+            "| Passed | Failed | Flaky | Skipped |",
+            "| --- | --- | --- | --- |",
+            "| \(.stats.expected) | \(.stats.unexpected) | \(.stats.flaky) | \(.stats.skipped) |",
+            section("Failed"; "unexpected"),
+            section("Flaky"; "flaky")
+          ' "$RESULTS" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save PR number
         if: always()
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           mkdir -p ./pr-info
           echo "$PR_NUMBER" > ./pr-info/pr_number.txt
+          # The surge comment reports this job, not the whole CI workflow.
+          echo "$JOB_STATUS" > ./pr-info/playwright_outcome.txt
+          jq '.stats.flaky' web/test-results/results.json > ./pr-info/playwright_flaky.txt 2>/dev/null || true
 
       - name: Upload PR info
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

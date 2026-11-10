@@ -78,9 +78,20 @@ jobs:
         HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
       with:
         script: |
+          const fs = require('fs');
+          // Read files from the PR's artifact, and trust only the values
+          // compared below. Older runs lack them, so fall back to the CI run.
+          const readInfo = (name) => {
+            try {
+              return fs.readFileSync(`pr-info/${name}`, 'utf8').trim();
+            } catch {
+              return '';
+            }
+          };
           const reportUrl = process.env.REPORT_URL;
           const prNumber = parseInt(process.env.PR_NUMBER, 10);
-          const conclusion = process.env.RUN_CONCLUSION;
+          const conclusion = readInfo('playwright_outcome.txt') || process.env.RUN_CONCLUSION;
+          const flaky = parseInt(readInfo('playwright_flaky.txt'), 10);
           const runUrl = process.env.RUN_URL;
           const headSha = process.env.HEAD_SHA;
 
@@ -98,10 +109,11 @@ jobs:
 
           const statusEmoji = conclusion === 'success' ? '✅' : '❌';
           const statusText = conclusion === 'success' ? 'passed' : 'failed';
+          const flakyText = flaky > 0 ? ` (${flaky} flaky)` : '';
 
           const commentBody = `## Playwright Test Report
 
-          ${statusEmoji} **Tests ${statusText}**
+          ${statusEmoji} **Tests ${statusText}**${flakyText}
 
           📊 **[View Full Report](${reportUrl})**
 
