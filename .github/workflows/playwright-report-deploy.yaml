@@ -45,27 +45,64 @@ jobs:
         path: ./pr-info
         if_no_artifact_found: ignore
 
+    # pr-info is written by the PR's own run, so a fork controls it. Trust the
+    # number only when it names an open PR whose head matches this CI run.
     - name: Read PR number
       id: pr
       if: steps.download-pr-info.outputs.found_artifact == 'true'
-      run: |
-        PR_NUMBER=$(cat pr-info/pr_number.txt)
-        echo "number=$PR_NUMBER" >> $GITHUB_OUTPUT
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      with:
+        script: |
+          const fs = require('fs');
+          const run = context.payload.workflow_run;
+          let raw;
+          try {
+            raw = fs.readFileSync('pr-info/pr_number.txt', 'utf8').trim();
+          } catch (err) {
+            core.warning(`pr_number.txt is unreadable (${err.code}); skipping deploy`);
+            return;
+          }
+          if (!/^[0-9]{1,10}$/.test(raw)) {
+            core.warning('pr_number.txt does not hold a PR number; skipping deploy');
+            return;
+          }
+          const number = Number(raw);
+          let pr;
+          try {
+            ({ data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: number,
+            }));
+          } catch (err) {
+            core.warning(`PR #${number} lookup failed (${err.status}); skipping deploy`);
+            return;
+          }
+          if (pr.state !== 'open') {
+            core.warning(`PR #${number} is ${pr.state}; skipping deploy`);
+            return;
+          }
+          if (!pr.head.repo || pr.head.repo.full_name !== run.head_repository?.full_name ||
+              pr.head.ref !== run.head_branch) {
+            core.warning(`PR #${number} head does not match this CI run's head; skipping deploy`);
+            return;
+          }
+          core.setOutput('number', String(number));
 
     - name: Install Surge CLI
-      if: steps.download-report.outputs.found_artifact == 'true' && steps.download-pr-info.outputs.found_artifact == 'true'
+      if: steps.download-report.outputs.found_artifact == 'true' && steps.download-pr-info.outputs.found_artifact == 'true' && steps.pr.outputs.number != ''
       run: npm install -g surge
 
     - name: Deploy to Surge
       id: deploy
-      if: steps.download-report.outputs.found_artifact == 'true' && steps.download-pr-info.outputs.found_artifact == 'true'
+      if: steps.download-report.outputs.found_artifact == 'true' && steps.download-pr-info.outputs.found_artifact == 'true' && steps.pr.outputs.number != ''
       env:
         PR_NUMBER: ${{ steps.pr.outputs.number }}
         SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
       run: |
         DEPLOY_DOMAIN="quay-playwright-pr-${PR_NUMBER}.surge.sh"
         surge ./playwright-report "$DEPLOY_DOMAIN" --token "$SURGE_TOKEN"
-        echo "url=https://$DEPLOY_DOMAIN" >> $GITHUB_OUTPUT
+        echo "url=https://$DEPLOY_DOMAIN" >> "$GITHUB_OUTPUT"
 
     - name: Comment PR with report URL
       if: steps.deploy.outcome == 'success'

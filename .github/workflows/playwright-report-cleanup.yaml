@@ -1,14 +1,25 @@
 name: Playwright Report Cleanup
 
+# pull_request_target so fork PRs get SURGE_TOKEN. No job checks out or runs
+# PR code.
 on:
-  pull_request:
+  pull_request_target:
     types: [closed]
     paths:
       - 'web/**'
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      days:
+        description: Tear down reports of PRs closed within this many days
+        type: number
+        default: 7
 
 jobs:
   cleanup:
     name: Teardown Playwright Report
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write
@@ -17,9 +28,13 @@ jobs:
     steps:
     - name: Teardown Surge deployment
       run: |
-        DEPLOY_DOMAIN="quay-playwright-pr-${{ github.event.pull_request.number }}.surge.sh"
-        npx surge teardown $DEPLOY_DOMAIN --token $SURGE_TOKEN
+        if [ -z "$SURGE_TOKEN" ]; then
+          echo "::error::SURGE_TOKEN is empty; cannot tear down quay-playwright-pr-${PR_NUMBER}.surge.sh"
+          exit 1
+        fi
+        npx surge@0.56.0 teardown "quay-playwright-pr-${PR_NUMBER}.surge.sh" --token "$SURGE_TOKEN"
       env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
         SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
 
     - name: Update PR comment
@@ -64,3 +79,57 @@ jobs:
               body: commentBody
             });
           }
+
+  # Catches PRs the paths filter skipped; a larger days clears a backlog.
+  sweep:
+    name: Sweep Playwright Reports of Closed PRs
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+    - name: List recently closed PRs
+      id: closed
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        DAYS: ${{ inputs.days || 7 }}
+      with:
+        script: |
+          const cutoff = Date.now() - Number(process.env.DAYS) * 24 * 60 * 60 * 1000;
+          const numbers = [];
+          // Sorted by updated desc, and closed_at <= updated_at, so the first
+          // PR updated before the cutoff ends the scan.
+          for await (const { data } of github.paginate.iterator(github.rest.pulls.list, {
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            state: 'closed',
+            sort: 'updated',
+            direction: 'desc',
+            per_page: 100,
+          })) {
+            let done = false;
+            for (const pr of data) {
+              if (Date.parse(pr.updated_at) < cutoff) { done = true; break; }
+              if (Date.parse(pr.closed_at) >= cutoff) numbers.push(pr.number);
+            }
+            if (done) break;
+          }
+          core.info(`${numbers.length} PRs closed in the last ${process.env.DAYS} days`);
+          core.setOutput('numbers', numbers.join(' '));
+
+    - name: Teardown Surge deployments
+      env:
+        PR_NUMBERS: ${{ steps.closed.outputs.numbers }}
+        SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
+      run: |
+        if [ -z "$SURGE_TOKEN" ]; then
+          echo "::error::SURGE_TOKEN is empty; cannot tear down Playwright reports"
+          exit 1
+        fi
+        for n in $PR_NUMBERS; do
+          domain="quay-playwright-pr-${n}.surge.sh"
+          npx surge@0.56.0 teardown "$domain" --token "$SURGE_TOKEN" \
+            || echo "::warning::teardown of $domain failed (likely already gone)"
+        done
