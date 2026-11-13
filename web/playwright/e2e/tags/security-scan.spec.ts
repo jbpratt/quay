@@ -241,7 +241,27 @@ test.describe(
         await expect(
           authenticatedPage.locator('th').filter({hasText: 'Security'}),
         ).toBeVisible();
-        await expect(authenticatedPage.getByText('Queued')).toBeVisible();
+        // The scan may finish before the page renders, so the UI check accepts
+        // a resolved state; the queued-at-push contract is asserted via the API.
+        const securityCell = authenticatedPage
+          .getByRole('row')
+          .filter({
+            has: authenticatedPage.getByRole('link', {name: 'latest'}),
+          })
+          .locator('td[data-label="Security"]');
+        await expect(securityCell).toHaveText(
+          /^(Queued|Failed|Unsupported|None Detected|\d+ (Critical|High|Medium|Low|Negligible|Unknown))$/,
+        );
+        // A resolved label is only valid once the API has resolved too, so a
+        // queued scan rendered as resolved still fails.
+        if ((await securityCell.textContent()) !== 'Queued') {
+          const resolved = await api.getManifestSecurity(
+            user.username,
+            repoName,
+            digest,
+          );
+          expect(resolved.status).not.toBe('queued');
+        }
       } finally {
         try {
           await api.deleteRepository(user.username, repoName);
