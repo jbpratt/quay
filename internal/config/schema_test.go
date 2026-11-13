@@ -153,7 +153,6 @@ var knownUnmapped = map[string]bool{
 	"FEATURE_RESTRICTED_USERS":                      true,
 	"FEATURE_RESTRICTED_V1_PUSH":                    true,
 	"FEATURE_SECURITY_SCANNER_NOTIFY_ON_NEW_INDEX":  true,
-	"FEATURE_SPARSE_INDEX":                          true,
 	"FEATURE_SPAM_DETECTION":                        true,
 	"FEATURE_SUPERUSERS_ORG_CREATION_ONLY":          true,
 	"FEATURE_SUPERUSER_CONFIGDUMP":                  true,

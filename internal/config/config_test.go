@@ -124,6 +124,22 @@ func TestParseExplicitFalseNotOverridden(t *testing.T) {
 	assert.False(t, cfg.FeatureDirectLogin)
 }
 
+func TestParseSparseIndex(t *testing.T) {
+	cfg, err := Parse([]byte("SERVER_HOSTNAME: test\n"))
+	require.NoError(t, err)
+	assert.False(t, cfg.FeatureSparseIndex, "absent defaults to false")
+	assert.False(t, NewDefault("localhost", "/data/storage").FeatureSparseIndex)
+
+	cfg, err = Parse([]byte("FEATURE_SPARSE_INDEX: false\n"))
+	require.NoError(t, err)
+	assert.False(t, cfg.FeatureSparseIndex)
+
+	cfg, err = Parse([]byte("FEATURE_SPARSE_INDEX: true\n"))
+	require.NoError(t, err)
+	assert.True(t, cfg.FeatureSparseIndex)
+	assert.NotContains(t, cfg.Extra, "FEATURE_SPARSE_INDEX", "mapped key must not land in Extra")
+}
+
 func TestParseCreatePrivateRepoOnPush(t *testing.T) {
 	cfg, err := Parse([]byte("CREATE_PRIVATE_REPO_ON_PUSH: true\n"))
 	require.NoError(t, err)

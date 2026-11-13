@@ -19,6 +19,7 @@ type Features struct {
 	FeatureReferrersAPI         bool `yaml:"FEATURE_REFERRERS_API"`
 	FeatureLibrarySupport       bool `yaml:"FEATURE_LIBRARY_SUPPORT"`
 	FeatureUserLastAccessed     bool `yaml:"FEATURE_USER_LAST_ACCESSED"`
+	FeatureSparseIndex          bool `yaml:"FEATURE_SPARSE_INDEX"`
 }
 
 // HasFullSuperuserAccess reports whether both superuser feature flags are

@@ -46,6 +46,7 @@ type harnessState struct {
 	dataDir     string
 	storagePath string
 	dbPath      string
+	sparseIndex bool
 }
 
 // New provisions an isolated registry and starts it on a loopback ephemeral
@@ -53,12 +54,24 @@ type harnessState struct {
 // audience use the actual server address.
 func New(tb testing.TB) *Harness {
 	tb.Helper()
+	return provision(tb, false)
+}
+
+// NewWithSparseIndex is New with FEATURE_SPARSE_INDEX enabled.
+func NewWithSparseIndex(tb testing.TB) *Harness {
+	tb.Helper()
+	return provision(tb, true)
+}
+
+func provision(tb testing.TB, sparseIndex bool) *Harness {
+	tb.Helper()
 
 	dataDir := tb.TempDir()
 	state := harnessState{
 		dataDir:     dataDir,
 		storagePath: filepath.Join(dataDir, "storage"),
 		dbPath:      filepath.Join(dataDir, "quay.db"),
+		sparseIndex: sparseIndex,
 	}
 
 	db, err := dbcore.Setup(tb.Context(), state.dbPath)
@@ -118,6 +131,7 @@ func start(tb testing.TB, state harnessState) *Harness {
 		DBPath:      state.dbPath,
 	}
 	resolved.Config.PreferredURLScheme = "http"
+	resolved.Config.FeatureSparseIndex = state.sparseIndex
 
 	app, err := mirrorregistry.New(tb.Context(), &mirrorregistry.Config{
 		Resolved:   resolved,

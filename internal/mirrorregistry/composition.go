@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -57,6 +58,7 @@ func compose(ctx context.Context, cfg *Config, resolved *config.Resolved, metric
 
 	store, err := metastore.NewSQLiteStore(ctx, result.db, metastore.StoreConfig{
 		CreatePrivateOnPush: resolved.Config.CreatePrivateOnPush,
+		SparseIndex:         cfg.Features.FeatureSparseIndex,
 	})
 	if err != nil {
 		return result, fmt.Errorf("metastore setup: %w", err)
@@ -123,7 +125,7 @@ func compose(ctx context.Context, cfg *Config, resolved *config.Resolved, metric
 	mux.Handle("/healthz", healthHandler(result.db))
 	mux.Handle("/metrics", metricsHandler)
 	mux.Handle("/v2/auth", result.reg.TokenHandler())
-	mux.Handle("/", v2Handler)
+	mux.Handle("/", sparseManifestSupportHeader(v2Handler, cfg.Features.FeatureSparseIndex))
 	result.handler = mux
 
 	result.blobs, err = local.New(resolved.StoragePath)
@@ -149,6 +151,18 @@ func configureStandaloneSuperuser(resolved *config.Resolved, username string) {
 	if !resolved.FromFile {
 		resolved.Config.SuperUsers = []string{username}
 	}
+}
+
+// sparseManifestSupportHeader advertises the effective FEATURE_SPARSE_INDEX
+// setting on the /v2/ base endpoint, whether or not the request is authenticated.
+func sparseManifestSupportHeader(next http.Handler, enabled bool) http.Handler {
+	value := strconv.FormatBool(enabled)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2/" {
+			w.Header().Set("X-Sparse-Manifest-Support", value)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func healthHandler(db *sql.DB) http.Handler {

@@ -670,3 +670,187 @@ func TestRegistryIndexAfterChildDigestPush(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, layerBytes, gotLayer)
 }
+
+const (
+	dockerManifestMediaType     = "application/vnd.docker.distribution.manifest.v2+json"
+	dockerManifestListMediaType = "application/vnd.docker.distribution.manifest.list.v2+json"
+)
+
+// With FEATURE_SPARSE_INDEX on, a Docker manifest list or OCI index naming a
+// child that was never pushed is accepted and served back byte for byte; the
+// missing child stays absent (PROJQUAY-14423).
+func TestRegistrySparseIndexPushPull(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		listMediaType string
+		childMedia    string
+		configMedia   string
+		layerMedia    string
+	}{
+		{
+			name:          "docker manifest list",
+			listMediaType: dockerManifestListMediaType,
+			childMedia:    dockerManifestMediaType,
+			configMedia:   "application/vnd.docker.container.image.v1+json",
+			layerMedia:    "application/vnd.docker.image.rootfs.diff.tar.gzip",
+		},
+		{
+			name:          "oci index",
+			listMediaType: v1.MediaTypeImageIndex,
+			childMedia:    v1.MediaTypeImageManifest,
+			configMedia:   v1.MediaTypeImageConfig,
+			layerMedia:    v1.MediaTypeImageLayerGzip,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := e2etest.NewWithSparseIndex(t)
+			ctx := t.Context()
+			const repository = "admin/e2e-sparse-index"
+
+			configBytes := []byte(`{"architecture":"amd64","os":"linux"}`)
+			layerBytes := []byte("sparse present child layer")
+			configDigest, err := h.Registry().PushBlob(ctx, repository, configBytes)
+			require.NoError(t, err)
+			layerDigest, err := h.Registry().PushBlob(ctx, repository, layerBytes)
+			require.NoError(t, err)
+			childBytes, err := json.Marshal(v1.Manifest{
+				Versioned: specs.Versioned{SchemaVersion: 2},
+				MediaType: tc.childMedia,
+				Config:    v1.Descriptor{MediaType: tc.configMedia, Digest: configDigest, Size: int64(len(configBytes))},
+				Layers:    []v1.Descriptor{{MediaType: tc.layerMedia, Digest: layerDigest, Size: int64(len(layerBytes))}},
+			})
+			require.NoError(t, err)
+			childDigest := digest.FromBytes(childBytes)
+			_, err = h.Registry().PutManifest(ctx, repository, childDigest.String(), childBytes, tc.childMedia)
+			require.NoError(t, err)
+
+			missingDigest := digest.FromString("sparse child that was never pushed")
+			indexBytes, err := json.Marshal(v1.Index{
+				Versioned: specs.Versioned{SchemaVersion: 2},
+				MediaType: tc.listMediaType,
+				Manifests: []v1.Descriptor{
+					{
+						MediaType: tc.childMedia,
+						Digest:    childDigest,
+						Size:      int64(len(childBytes)),
+						Platform:  &v1.Platform{Architecture: "amd64", OS: "linux"},
+					},
+					{
+						MediaType: tc.childMedia,
+						Digest:    missingDigest,
+						Size:      1234,
+						Platform:  &v1.Platform{Architecture: "arm64", OS: "linux"},
+					},
+				},
+			})
+			require.NoError(t, err)
+
+			response, err := h.Registry().PutManifest(ctx, repository, "latest", indexBytes, tc.listMediaType)
+			require.NoError(t, err)
+			assert.Equal(t, digest.FromBytes(indexBytes), response.Digest)
+
+			for _, reference := range []string{"latest", response.Digest.String()} {
+				got, err := h.Registry().GetManifestWithAccept(ctx, repository, reference, tc.listMediaType)
+				require.NoError(t, err)
+				assert.Equal(t, indexBytes, got.Body, "GET %s must return the stored index bytes", reference)
+				assert.Contains(t, got.MediaType, tc.listMediaType)
+			}
+			gotChild, err := h.Registry().GetManifestWithAccept(ctx, repository, childDigest.String(), tc.childMedia)
+			require.NoError(t, err)
+			assert.Equal(t, childBytes, gotChild.Body)
+			assertRegistryMissing(t, h, repository, missingDigest.String())
+		})
+	}
+}
+
+// A tagged sparse index protects its present child from garbage collection
+// once the child's own temporary tag and upload markers expire; the child is
+// collected after the index is deleted (PROJQUAY-14423).
+func TestRegistrySparseIndexGarbageCollection(t *testing.T) {
+	h := e2etest.NewWithSparseIndex(t)
+	ctx := t.Context()
+	const repository = "admin/e2e-sparse-index-gc"
+
+	layerBytes := []byte("sparse gc child layer")
+	child := pushImage(t, h, repository, "", []byte(`{"architecture":"amd64","os":"linux"}`), layerBytes)
+	indexBytes, err := json.Marshal(v1.Index{
+		Versioned: specs.Versioned{SchemaVersion: 2},
+		MediaType: v1.MediaTypeImageIndex,
+		Manifests: []v1.Descriptor{
+			{MediaType: v1.MediaTypeImageManifest, Digest: child.digest, Size: int64(len(child.manifest))},
+			{MediaType: v1.MediaTypeImageManifest, Digest: digest.FromString("sparse gc missing child"), Size: 1234},
+		},
+	})
+	require.NoError(t, err)
+	response, err := h.Registry().PutManifest(ctx, repository, "latest", indexBytes, v1.MediaTypeImageIndex)
+	require.NoError(t, err)
+
+	require.NoError(t, h.ExpireUploadProtection(ctx))
+	require.NoError(t, h.ExpireTemporaryTags(ctx))
+	stats, err := h.CollectGarbage(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, stats.ManifestsDeleted, "the tagged sparse index keeps its present child")
+	assert.Zero(t, stats.BlobsDeleted)
+
+	gotIndex, err := h.Registry().GetManifest(ctx, repository, "latest")
+	require.NoError(t, err)
+	assert.Equal(t, indexBytes, gotIndex.Body)
+	gotChild, err := h.Registry().GetManifest(ctx, repository, child.digest.String())
+	require.NoError(t, err)
+	assert.Equal(t, child.manifest, gotChild.Body)
+	gotLayer, err := h.Registry().GetBlob(ctx, repository, child.layer)
+	require.NoError(t, err)
+	assert.Equal(t, layerBytes, gotLayer)
+
+	// DELETE removes the index row and its tag; the unprotected child and its
+	// blobs are then collected.
+	require.NoError(t, h.Registry().DeleteManifest(ctx, repository, response.Digest))
+	stats, err = h.CollectGarbage(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, stats.ManifestsDeleted)
+	assert.Equal(t, 2, stats.BlobsDeleted)
+	assertRegistryMissing(t, h, repository, "latest")
+	assertRegistryMissing(t, h, repository, child.digest.String())
+	assertBlobMissing(t, h, repository, child.layer)
+}
+
+// /v2/ reports the effective FEATURE_SPARSE_INDEX setting on both the
+// unauthenticated challenge and the authenticated response (PROJQUAY-14423).
+func TestRegistrySparseManifestSupportHeader(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		new  func(testing.TB) *e2etest.Harness
+		want string
+	}{
+		{name: "disabled", new: e2etest.New, want: "false"},
+		{name: "enabled", new: e2etest.NewWithSparseIndex, want: "true"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := tc.new(t)
+			ctx := t.Context()
+			token, err := h.Registry().RequestToken(ctx, "admin/e2e-sparse-header", "pull")
+			require.NoError(t, err)
+
+			for _, auth := range []struct {
+				token string
+				code  int
+			}{
+				{token: "", code: http.StatusUnauthorized},
+				{token: token, code: http.StatusOK},
+			} {
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.BaseURL()+"/v2/", http.NoBody)
+				require.NoError(t, err)
+				if auth.token != "" {
+					req.Header.Set("Authorization", "Bearer "+auth.token)
+				}
+				resp, err := h.HTTPClient().Do(req)
+				require.NoError(t, err)
+				_, err = io.Copy(io.Discard, resp.Body)
+				require.NoError(t, err)
+				require.NoError(t, resp.Body.Close())
+				assert.Equal(t, auth.code, resp.StatusCode)
+				assert.Equal(t, tc.want, resp.Header.Get("X-Sparse-Manifest-Support"))
+			}
+		})
+	}
+}

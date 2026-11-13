@@ -28,6 +28,7 @@ type SQLiteStore struct {
 	defaultVisibility int64
 	repoKindImage     int64
 	tagKindTag        int64
+	sparseIndex       bool
 
 	mediaTypesMu sync.RWMutex
 	mediaTypes   map[string]int64
@@ -51,6 +52,9 @@ func (s *SQLiteStore) DB() *sql.DB { return s.db }
 // StoreConfig configures metastore behavior.
 type StoreConfig struct {
 	CreatePrivateOnPush bool
+	// SparseIndex accepts manifest lists and indexes whose children are not
+	// all present, linking only the children that are.
+	SparseIndex bool
 }
 
 // NewSQLiteStore creates a Store backed by the given SQLite database. It
@@ -60,7 +64,7 @@ func NewSQLiteStore(ctx context.Context, db *sql.DB, opts ...StoreConfig) (*SQLi
 	if len(opts) > 0 {
 		cfg = opts[0]
 	}
-	s := &SQLiteStore{db: db, mediaTypes: make(map[string]int64)}
+	s := &SQLiteStore{db: db, mediaTypes: make(map[string]int64), sparseIndex: cfg.SparseIndex}
 	if err := s.cacheEnums(ctx, cfg); err != nil {
 		return nil, fmt.Errorf("metastore: cache enums: %w", err)
 	}
@@ -271,7 +275,7 @@ func (s *SQLiteStore) validateBlobs(ctx context.Context, repoID int64, q *daldb.
 
 // validateChildManifests validates that all child manifests for a particular manifest list are stored in the database
 // before the image manifest is stored. This ensures consistency: we do not have indexes that have placeholder
-// manifests as children.
+// manifests as children. With sparse index support, missing children are skipped and only present ones are returned.
 func (s *SQLiteStore) validateChildManifests(ctx context.Context, repoID int64, q *daldb.Queries, m *oci.ManifestRecord) ([]int64, error) {
 	var childIDs []int64
 	for _, childDigest := range m.ChildDigests {
@@ -281,6 +285,9 @@ func (s *SQLiteStore) validateChildManifests(ctx context.Context, repoID int64, 
 		})
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
+				if s.sparseIndex {
+					continue
+				}
 				return nil, oci.ChildManifestUnknownError{Digest: childDigest}
 			}
 			return nil, fmt.Errorf("error during child lookup %s: %w", childDigest.String(), err)

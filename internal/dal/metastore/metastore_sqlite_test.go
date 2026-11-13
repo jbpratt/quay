@@ -1120,3 +1120,109 @@ func TestPutManifest_IndexWithMissingChildWritesNothing(t *testing.T) {
 		assert.Zero(t, n, "rejected index PUT left rows in %s", table)
 	}
 }
+
+// With sparse index support, an index whose children are only partly present
+// is stored with its exact bytes and links only the present children
+// (PROJQUAY-14423).
+func TestPutManifest_SparseIndexLinksPresentChildren(t *testing.T) {
+	store := setupStoreWithConfig(t, metastore.StoreConfig{SparseIndex: true})
+	db := store.DB()
+	ctx := t.Context()
+
+	repoID, err := store.EnsureRepository(ctx, oci.RepositoryName{Namespace: "library", Name: "sparse-mixed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childContent := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json"}`)
+	childDgst := digest.FromBytes(childContent)
+	childID, err := store.PutManifest(ctx, repoID, oci.ManifestRecord{
+		Digest:    childDgst,
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Content:   childContent,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	indexContent := []byte(`{"schemaVersion":2,"manifests":["sparse-mixed"]}`)
+	indexID, err := store.PutManifest(ctx, repoID, oci.ManifestRecord{
+		Digest:       digest.FromBytes(indexContent),
+		MediaType:    "application/vnd.oci.image.index.v1+json",
+		Content:      indexContent,
+		ChildDigests: []digest.Digest{digest.FromString("missing-before"), childDgst, digest.FromString("missing-after")},
+		Tag:          "latest",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var stored string
+	if err := db.QueryRowContext(ctx, `SELECT manifest_bytes FROM manifest WHERE id = ?`, indexID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, string(indexContent), stored, "sparse index bytes must be stored unchanged")
+
+	var links []int64
+	rows, err := db.QueryContext(ctx, `SELECT child_manifest_id FROM manifestchild WHERE manifest_id = ?`, indexID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		links = append(links, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, []int64{childID}, links, "only the present child is linked")
+
+	var manifests int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM manifest WHERE repository_id = ?`, repoID).Scan(&manifests); err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 2, manifests, "missing children must not get placeholder rows")
+}
+
+// With sparse index support, an index with no present children is still
+// stored and tagged, with no child links (PROJQUAY-14423).
+func TestPutManifest_SparseIndexAllChildrenMissing(t *testing.T) {
+	store := setupStoreWithConfig(t, metastore.StoreConfig{SparseIndex: true})
+	db := store.DB()
+	ctx := t.Context()
+
+	repoID, err := store.EnsureRepository(ctx, oci.RepositoryName{Namespace: "library", Name: "sparse-empty"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexContent := []byte(`{"schemaVersion":2,"manifests":["sparse-empty"]}`)
+	indexID, err := store.PutManifest(ctx, repoID, oci.ManifestRecord{
+		Digest:       digest.FromBytes(indexContent),
+		MediaType:    "application/vnd.oci.image.index.v1+json",
+		Content:      indexContent,
+		ChildDigests: []digest.Digest{digest.FromString("never-pushed-child")},
+		Tag:          "latest",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var stored string
+	if err := db.QueryRowContext(ctx, `SELECT manifest_bytes FROM manifest WHERE id = ?`, indexID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, string(indexContent), stored)
+
+	var links, tags int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM manifestchild WHERE manifest_id = ?`, indexID).Scan(&links); err != nil {
+		t.Fatal(err)
+	}
+	assert.Zero(t, links)
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM tag WHERE manifest_id = ? AND name = 'latest'`, indexID).Scan(&tags); err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 1, tags)
+}
