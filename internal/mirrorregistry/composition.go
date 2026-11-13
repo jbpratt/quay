@@ -11,17 +11,20 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/quay/quay/internal/auth"
 	"github.com/quay/quay/internal/bootstrap"
 	"github.com/quay/quay/internal/config"
 	"github.com/quay/quay/internal/dal/dbcore"
 	"github.com/quay/quay/internal/dal/metastore"
 	"github.com/quay/quay/internal/gc"
 	mirrordist "github.com/quay/quay/internal/mirrorregistry/distribution"
+	"github.com/quay/quay/internal/mirrorregistry/images"
 	"github.com/quay/quay/internal/oci"
 	"github.com/quay/quay/internal/oci/storage/local"
 	"github.com/quay/quay/internal/registry"
 	registrymw "github.com/quay/quay/internal/registry/distribution/middleware"
 	"github.com/quay/quay/internal/registry/jwtauth"
+	repositorydal "github.com/quay/quay/internal/repository/dal"
 )
 
 type metricsConfig struct {
@@ -123,6 +126,24 @@ func compose(ctx context.Context, cfg *Config, resolved *config.Resolved, metric
 	mux.Handle("/healthz", healthHandler(result.db))
 	mux.Handle("/metrics", metricsHandler)
 	mux.Handle("/v2/auth", result.reg.TokenHandler())
+	mux.Handle(images.PagePath, images.NewHandler(images.Config{
+		DB:    result.db,
+		Store: store,
+		Verifier: auth.NewDatabaseVerifier(result.db, auth.DatabaseVerifierConfig{
+			DatabaseSecretKey:              resolved.Config.DatabaseSecretKey,
+			RobotsDisallow:                 resolved.Config.RobotsDisallow,
+			RobotsWhitelist:                resolved.Config.RobotsWhitelist,
+			FeatureUserLastAccessed:        featureUserLastAccessed,
+			LastAccessedUpdateThresholdSec: resolved.Config.LastAccessedUpdateThresholdS,
+			PasswordCacheTTL:               passwordAuthCacheTTL,
+		}),
+		Authorizer: repositorydal.NewAuthorizer(result.db, repositorydal.AuthorizerConfig{
+			SuperUsers:           resolved.Config.SuperUsers,
+			SuperUsersFullAccess: cfg.Features.HasFullSuperuserAccess(),
+		}),
+		Realm: resolved.Config.ServerHostname,
+	}))
+	mux.Handle(images.AssetPrefix, images.AssetHandler())
 	mux.Handle("/", v2Handler)
 	result.handler = mux
 

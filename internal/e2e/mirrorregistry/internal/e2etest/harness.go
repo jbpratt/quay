@@ -228,6 +228,11 @@ func (h *Harness) HTTPClient() *http.Client {
 	return h.client
 }
 
+// Credentials returns the administrator's Basic credentials.
+func (h *Harness) Credentials() (username, password string) {
+	return e2eUsername, e2ePassword
+}
+
 // Registry returns the HTTP OCI registry client for this harness.
 func (h *Harness) Registry() *RegistryClient {
 	if h == nil {
