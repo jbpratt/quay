@@ -323,7 +323,80 @@ jobs:
         env:
           PLAYWRIGHT_BLOB_OUTPUT_DIR: blob-results/db
           PLAYWRIGHT_SKIP_WEBSERVER: "1"
-        run: cd web && npx playwright test --grep-invert "@auth:OIDC|@auth:LDAP|@upgrade-seed|@upgrade-verify|@redhat-branding" --reporter=blob
+        run: cd web && npx playwright test --grep-invert "@auth:OIDC|@auth:LDAP|@upgrade-seed|@upgrade-verify|@redhat-branding|@proxy:squid" --reporter=blob
+
+      - name: Route Quay through Squid
+        id: squid-topology
+        if: always()
+        run: |
+          cp local-dev/stack/config.yaml /tmp/config.yaml.pre-squid
+          pip install pyyaml -q
+          # The blob worker would fetch the test blobs through Squid itself,
+          # so Squid's log could not tell it apart from the streaming path.
+          python3 - <<'EOF'
+          import yaml
+          path = "local-dev/stack/config.yaml"
+          with open(path) as f:
+              cfg = yaml.safe_load(f)
+          cfg["FEATURE_PROXY_CACHE_BLOB_DOWNLOAD"] = False
+          cfg["SSRF_ALLOWED_HOSTS"] = cfg.get("SSRF_ALLOWED_HOSTS", []) + [
+              "registry-upstream",
+              "registry-denied",
+          ]
+          with open(path, "w") as f:
+              yaml.safe_dump(cfg, f, sort_keys=False)
+          EOF
+          compose="docker compose -f docker-compose.yaml -f docker-compose.proxy-squid.yaml"
+          $compose up -d squid registry-upstream
+          # clair and repomirror share quay's network namespace, so they
+          # are recreated with it.
+          DOCKER_USER="1001:0" $compose up -d --no-build --no-deps --force-recreate quay clair repomirror
+          curl -sf --retry 30 --retry-delay 2 --retry-all-errors \
+            http://localhost:8080/health/instance > /dev/null
+          curl -sf --retry 15 --retry-delay 2 --retry-all-errors \
+            http://localhost:5001/v2/ > /dev/null
+          if docker exec quay-quay getent hosts registry-upstream; then
+            echo "::error::Quay resolves registry-upstream, so it could bypass Squid"
+            exit 1
+          fi
+          docker exec quay-squid getent hosts registry-upstream
+
+      - name: Run Squid proxy-cache tests
+        if: always() && steps.squid-topology.outcome == 'success'
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: blob-results/squid
+          PLAYWRIGHT_SKIP_WEBSERVER: "1"
+          PLAYWRIGHT_SQUID_E2E: "1"
+        run: |
+          rc=0
+          (cd web && npx playwright test --grep @proxy:squid --reporter=blob) || rc=$?
+          log=$(docker exec quay-squid cat /var/log/squid/access.log)
+          echo "$log"
+          [ "$rc" -eq 0 ] || exit "$rc"
+          if ! grep -qE '/200 [0-9]+ GET http://registry-upstream:5000/v2/[^ ]+/blobs/sha256:' <<<"$log"; then
+            echo "::error::No proxied blob GET to registry-upstream in Squid's access log"
+            exit 1
+          fi
+          if ! grep -qE 'TCP_DENIED/403 [0-9]+ GET http://registry-denied:5000/v2/[^ ]+/blobs/sha256:' <<<"$log"; then
+            echo "::error::No denied blob GET to registry-denied in Squid's access log"
+            exit 1
+          fi
+
+      - name: Restore Quay without Squid
+        if: always()
+        run: |
+          if [ -f /tmp/config.yaml.pre-squid ]; then
+            cp /tmp/config.yaml.pre-squid local-dev/stack/config.yaml
+          fi
+          docker compose -f docker-compose.yaml -f docker-compose.proxy-squid.yaml \
+            rm -sf squid registry-upstream
+          DOCKER_USER="1001:0" docker compose up -d --no-build --no-deps --force-recreate quay clair repomirror
+          curl -sf --retry 30 --retry-delay 2 --retry-all-errors \
+            http://localhost:8080/health/instance > /dev/null
+          if docker exec quay-quay env | grep -qi '^https\?_proxy='; then
+            echo "::error::Quay still has proxy environment after restore"
+            exit 1
+          fi
 
       - name: Swap to OIDC authentication
         if: always()
