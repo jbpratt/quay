@@ -1859,6 +1859,10 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       if (hasContainerTag && !containerAvailable) {
         testInfo.skip(true, 'Registry image tooling (skopeo) required');
       }
+      // Pushes can take most of the default budget on a loaded registry.
+      if (hasContainerTag) {
+        testInfo.setTimeout(testInfo.timeout * 3);
+      }
       await use();
     },
     {auto: true},

@@ -8,6 +8,8 @@ import {APIRequestContext, APIResponse} from '@playwright/test';
 import {requestCsrfToken} from './csrf';
 import {API_URL} from '../config';
 
+const REQUEST_TIMEOUT = 5000;
+
 export type RepositoryVisibility = 'public' | 'private';
 export type RepositoryState = 'NORMAL' | 'MIRROR' | 'READ_ONLY';
 export type OrgMirrorVisibility = 'public' | 'private';
@@ -315,7 +317,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/organization/`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -337,7 +339,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/organization/${name}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
 
@@ -355,7 +357,7 @@ export class ApiClient {
     const response = await this.withFreshLoginRetry(async () => {
       const token = await this.fetchToken();
       return this.request.delete(`${API_URL}/api/v1/organization/${name}`, {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -380,7 +382,7 @@ export class ApiClient {
   ): Promise<{namespace: string; name: string; kind: string}> {
     const token = await this.fetchToken();
     const response = await this.request.post(`${API_URL}/api/v1/repository`, {
-      timeout: 5000,
+      timeout: REQUEST_TIMEOUT,
       headers: {
         'X-CSRF-Token': token,
       },
@@ -408,7 +410,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/repository/${namespace}/${name}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -432,7 +434,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/repository/${namespace}/${name}/changestate`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -504,7 +506,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/repository/${namespace}/${name}/mirror`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
 
@@ -552,7 +554,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/repository/${namespace}/${name}/mirror/sync-now`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -572,7 +574,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/repository/${namespace}/${name}/mirror/sync-cancel`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -602,7 +604,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/notification/`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -635,7 +637,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/notification/${uuid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -659,7 +661,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/notification/${uuid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -683,7 +685,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/notification/${uuid}/test`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -713,7 +715,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/notification/`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
 
@@ -741,7 +743,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/organization/${orgName}/notifications`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -773,7 +775,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/organization/${orgName}/notifications/${uuid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -800,7 +802,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/organization/${orgName}/notifications`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
 
@@ -822,7 +824,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/organization/${orgName}/notifications/${uuid}/test`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -850,7 +852,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/user/namespacenotifications`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -879,7 +881,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/user/namespacenotifications/${uuid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -906,7 +908,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/user/namespacenotifications`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
 
@@ -925,7 +927,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/user/namespacenotifications/${uuid}/test`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -951,7 +953,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/organization/${orgName}/team/${teamName}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -976,7 +978,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/organization/${orgName}/team/${teamName}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1002,7 +1004,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/organization/${orgName}/robots/${robotShortname}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1027,7 +1029,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/organization/${orgName}/robots/${robotShortname}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1048,7 +1050,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/organization/${orgName}/prototypes`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
 
@@ -1082,7 +1084,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/organization/${orgName}/prototypes`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1105,7 +1107,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/organization/${orgName}/prototypes/${prototypeId}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1248,7 +1250,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/users/${username}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
     return response.ok();
@@ -1258,7 +1260,7 @@ export class ApiClient {
   async clearUserPrompts(username: string): Promise<void> {
     const token = await this.getToken();
     const response = await this.request.put(`${API_URL}/api/v1/user/`, {
-      timeout: 5000,
+      timeout: REQUEST_TIMEOUT,
       headers: {'X-CSRF-Token': token},
       data: {username, given_name: 'Test', family_name: 'User'},
     });
@@ -1275,7 +1277,7 @@ export class ApiClient {
   async signIn(username: string, password: string): Promise<void> {
     const token = await this.fetchToken();
     const response = await this.request.post(`${API_URL}/api/v1/signin`, {
-      timeout: 5000,
+      timeout: REQUEST_TIMEOUT,
       headers: {
         'X-CSRF-Token': token,
       },
@@ -1302,7 +1304,7 @@ export class ApiClient {
 
   async getCurrentUser(): Promise<CurrentUserResponse> {
     const response = await this.request.get(`${API_URL}/api/v1/user/`, {
-      timeout: 5000,
+      timeout: REQUEST_TIMEOUT,
     });
 
     if (!response.ok()) {
@@ -1332,7 +1334,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/user/notifications?limit=${limit}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
 
@@ -1351,7 +1353,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/teaminvite/${encodeURIComponent(code)}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1368,7 +1370,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/user/notifications/${uuid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1395,7 +1397,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/organization/${orgName}/team/${teamName}/members/${memberName}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1419,7 +1421,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/organization/${orgName}/team/${teamName}/members/${memberName}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1447,7 +1449,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/permissions/${entityType}/${entityName}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1475,7 +1477,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/permissions/${entityType}/${entityName}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1494,7 +1496,7 @@ export class ApiClient {
 
   async getMessages(): Promise<GlobalMessage[]> {
     const response = await this.request.get(`${API_URL}/api/v1/messages`, {
-      timeout: 5000,
+      timeout: REQUEST_TIMEOUT,
     });
 
     if (!response.ok()) {
@@ -1514,7 +1516,7 @@ export class ApiClient {
     const response = await this.withFreshLoginRetry(async () => {
       const token = await this.fetchToken();
       return this.request.post(`${API_URL}/api/v1/messages`, {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1548,7 +1550,7 @@ export class ApiClient {
     const response = await this.withFreshLoginRetry(async () => {
       const token = await this.fetchToken();
       return this.request.delete(`${API_URL}/api/v1/message/${uuid}`, {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1569,7 +1571,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/superuser/keys`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
 
@@ -1593,7 +1595,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/superuser/keys`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1623,7 +1625,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/superuser/keys/${kid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1646,7 +1648,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/superuser/keys/${kid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1667,7 +1669,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/organization/${orgName}/quota`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
 
@@ -1693,7 +1695,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/organization/${orgName}/quota`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1720,7 +1722,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/organization/${orgName}/quota/${quotaId}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1746,7 +1748,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/organization/${orgName}/quota/${quotaId}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1771,7 +1773,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/organization/${orgName}/quota/${quotaId}/limit`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1799,7 +1801,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/organization/${orgName}/quota/${quotaId}/limit/${limitId}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1826,7 +1828,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/superuser/users/${namespace}/quota`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -1851,7 +1853,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/superuser/users/${namespace}/quota`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
 
@@ -1876,7 +1878,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/superuser/users/${namespace}/quota/${quotaId}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2103,7 +2105,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/organization/${orgName}/proxycache`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
 
@@ -2156,7 +2158,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/organization/${orgName}/proxycache`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2226,7 +2228,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/tag/${tag}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2253,7 +2255,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/tag/${tag}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2286,7 +2288,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/tag/${tag}/expire`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2316,7 +2318,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/tag/${tag}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2349,7 +2351,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/tag/${tag}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2378,7 +2380,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/organization/${orgName}/immutabilitypolicy/`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
 
@@ -2403,7 +2405,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/organization/${orgName}/immutabilitypolicy/`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2433,7 +2435,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/organization/${orgName}/immutabilitypolicy/${policyUuid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2460,7 +2462,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/organization/${orgName}/immutabilitypolicy/${policyUuid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2485,7 +2487,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/immutabilitypolicy/`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
 
@@ -2511,7 +2513,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/immutabilitypolicy/`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2542,7 +2544,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/immutabilitypolicy/${policyUuid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2570,7 +2572,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/immutabilitypolicy/${policyUuid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2595,7 +2597,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/organization/${orgName}/autoprunepolicy/`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2621,7 +2623,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/organization/${orgName}/autoprunepolicy/${policyUuid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2645,7 +2647,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/autoprunepolicy/`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2672,7 +2674,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/autoprunepolicy/${policyUuid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2690,7 +2692,7 @@ export class ApiClient {
   async listUserAutoPrunePolicies(): Promise<{uuid: string}[]> {
     const response = await this.request.get(
       `${API_URL}/api/v1/user/autoprunepolicy/`,
-      {timeout: 5000},
+      {timeout: REQUEST_TIMEOUT},
     );
 
     if (!response.ok()) {
@@ -2718,7 +2720,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/user/autoprunepolicy/`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2741,7 +2743,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/user/autoprunepolicy/${policyUuid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2811,7 +2813,7 @@ export class ApiClient {
     const response = await this.request.get(
       `${API_URL}/api/v1/organization/${orgName}/mirror`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
       },
     );
 
@@ -2858,7 +2860,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/organization/${orgName}/mirror`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2878,7 +2880,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/organization/${orgName}/mirror/sync-now`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2898,7 +2900,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/organization/${orgName}/mirror/sync-cancel`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'X-CSRF-Token': token,
         },
@@ -2925,7 +2927,7 @@ export class ApiClient {
       return this.request.post(
         `${API_URL}/api/v1/organization/${orgName}/team/${teamName}/syncing`,
         {
-          timeout: 5000,
+          timeout: REQUEST_TIMEOUT,
           headers: {'X-CSRF-Token': token},
           data: {group_dn: groupName},
         },
@@ -2946,7 +2948,7 @@ export class ApiClient {
       return this.request.delete(
         `${API_URL}/api/v1/organization/${orgName}/team/${teamName}/syncing`,
         {
-          timeout: 5000,
+          timeout: REQUEST_TIMEOUT,
           headers: {'X-CSRF-Token': token},
         },
       );
@@ -2972,7 +2974,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/organization/${orgName}/applications`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {'X-CSRF-Token': token},
         data: {
           name,
@@ -2995,7 +2997,7 @@ export class ApiClient {
   async getOAuthApplications(orgName: string): Promise<OAuthApp[]> {
     const response = await this.request.get(
       `${API_URL}/api/v1/organization/${orgName}/applications`,
-      {timeout: 5000},
+      {timeout: REQUEST_TIMEOUT},
     );
 
     if (!response.ok()) {
@@ -3017,7 +3019,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/organization/${orgName}/applications/${clientId}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {'X-CSRF-Token': token},
       },
     );
@@ -3038,7 +3040,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/organization/${orgName}/applications/${clientId}/resetclientsecret`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {'X-CSRF-Token': token},
       },
     );
@@ -3069,7 +3071,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/organization/${orgName}/quota/${quotaId}/limit/${limitId}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {'X-CSRF-Token': token},
         data: {type, threshold_percent: thresholdPercent},
       },
@@ -3102,7 +3104,7 @@ export class ApiClient {
     const response = await this.request.post(
       `${API_URL}/api/v1/organization/${orgName}/robots/${robotShortname}/federation`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {'X-CSRF-Token': token},
         data: federations,
       },
@@ -3129,7 +3131,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/organization/${orgName}/robots/${robotShortname}/federation`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {'X-CSRF-Token': token},
       },
     );
@@ -3197,7 +3199,7 @@ export class ApiClient {
   ): Promise<{triggers: Array<Record<string, unknown>>}> {
     const response = await this.request.get(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/trigger/`,
-      {timeout: 5000},
+      {timeout: REQUEST_TIMEOUT},
     );
 
     if (!response.ok()) {
@@ -3220,7 +3222,7 @@ export class ApiClient {
     const response = await this.request.put(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/trigger/${triggerUuid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {'X-CSRF-Token': token},
         data: {enabled},
       },
@@ -3243,7 +3245,7 @@ export class ApiClient {
     const response = await this.request.delete(
       `${API_URL}/api/v1/repository/${namespace}/${repo}/trigger/${triggerUuid}`,
       {
-        timeout: 5000,
+        timeout: REQUEST_TIMEOUT,
         headers: {'X-CSRF-Token': token},
       },
     );

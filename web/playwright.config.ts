@@ -25,6 +25,9 @@ export default defineConfig({
   // Maximum time one test can run for
   timeout: 60 * 1000,
 
+  // Default wait for web-first assertions and expect.poll
+  expect: {timeout: 10 * 1000},
+
   // Run tests in parallel — fixed at 4 for CI so Quay isn't overwhelmed by
   // more workers than it can sustain, regardless of runner CPU count.
   fullyParallel: true,
