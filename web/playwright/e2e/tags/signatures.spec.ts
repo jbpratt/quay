@@ -42,20 +42,23 @@ test.describe(
       );
 
       // Poll for the tag to be indexed (push is sync but indexing may lag)
-      let digest: string | undefined;
-      for (let attempt = 0; attempt < 10; attempt++) {
-        const tags = await api.getTags(testRepo.namespace, testRepo.name, {
-          specificTag: 'latest',
-        });
-        if (tags.tags.length > 0) {
-          digest = tags.tags[0].manifest_digest;
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-      if (!digest) {
-        throw new Error('Pushed tag was not indexed after 10 attempts');
-      }
+      let digest = '';
+      await expect
+        .poll(
+          async () => {
+            const tags = await api.getTags(testRepo.namespace, testRepo.name, {
+              specificTag: 'latest',
+            });
+            digest = tags.tags[0]?.manifest_digest ?? '';
+            return digest;
+          },
+          {
+            message: 'Pushed tag was not indexed',
+            intervals: [1000],
+            timeout: 30_000,
+          },
+        )
+        .toBeTruthy();
 
       // Build cosign-style signature tag prefix: sha256-<hex>
       // Digest format: "sha256:<hex>" → tag prefix: "sha256-<hex>"
@@ -215,20 +218,23 @@ test.describe(
         user.password,
       );
 
-      let digest: string | undefined;
-      for (let attempt = 0; attempt < 10; attempt++) {
-        const tags = await api.getTags(testRepo.namespace, testRepo.name, {
-          specificTag: 'latest',
-        });
-        if (tags.tags.length > 0) {
-          digest = tags.tags[0].manifest_digest;
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-      if (!digest) {
-        throw new Error('Pushed tag was not indexed after 10 attempts');
-      }
+      let digest = '';
+      await expect
+        .poll(
+          async () => {
+            const tags = await api.getTags(testRepo.namespace, testRepo.name, {
+              specificTag: 'latest',
+            });
+            digest = tags.tags[0]?.manifest_digest ?? '';
+            return digest;
+          },
+          {
+            message: 'Pushed tag was not indexed',
+            intervals: [1000],
+            timeout: 30_000,
+          },
+        )
+        .toBeTruthy();
 
       // Cosign v3 referrer: sign busybox with a generated key pair (no .sig tag)
       await cosignSignWithKey(

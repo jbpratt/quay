@@ -198,33 +198,29 @@ test.describe(
       // Wait for the build logs archiver to archive this build's logs.
       // The archiver polls every 30s (POLL_PERIOD_SECONDS) and archives one
       // build per cycle, so the deadline covers the poll period plus queue.
-      const archiveDeadline = Date.now() + 300_000;
-      let hasLogsUrl = false;
-      while (Date.now() < archiveDeadline) {
-        const resp = await readonlyApi.raw.getBuildLogsAsSuperuser(
-          build.buildId,
-        );
-        if (resp.ok()) {
-          const body = await resp.json();
-          if (body.logs_url) {
-            hasLogsUrl = true;
-            break;
-          }
-        } else if ([400, 401, 403].includes(resp.status())) {
-          const body = await resp.text();
-          throw new Error(
-            `Unexpected ${resp.status()} polling build logs for ${
-              build.buildId
-            }: ${body}`,
-          );
-        }
-        await new Promise((r) => setTimeout(r, 5_000));
-      }
-      if (!hasLogsUrl) {
-        throw new Error(
-          `Archiver did not archive logs for ${build.buildId} within timeout`,
-        );
-      }
+      await expect
+        .poll(
+          async () => {
+            const resp = await readonlyApi.raw.getBuildLogsAsSuperuser(
+              build.buildId,
+            );
+            if ([400, 401, 403].includes(resp.status())) {
+              const body = await resp.text();
+              throw new Error(
+                `Unexpected ${resp.status()} polling build logs for ${
+                  build.buildId
+                }: ${body}`,
+              );
+            }
+            return resp.ok() && Boolean((await resp.json()).logs_url);
+          },
+          {
+            message: `Archiver did not archive logs for ${build.buildId} within timeout`,
+            timeout: 300_000,
+            intervals: [5_000],
+          },
+        )
+        .toBe(true);
 
       // Load Build Logs page as the readonly superuser — should render
       // archived logs via the superuser archive endpoint, not 403 from /logarchive/

@@ -194,28 +194,29 @@ test.describe(
       });
       expect(tags.tags.length).toBeGreaterThan(0);
       const digest = tags.tags[0].manifest_digest;
-      const deadline = Date.now() + 120000;
-      while (Date.now() < deadline) {
-        try {
-          const sec = await api.getManifestSecurity(
-            testRepo.namespace,
-            testRepo.name,
-            digest,
-          );
-          if (sec.status) {
-            scanStatus = sec.status;
-            if (scanStatus !== 'queued') break;
-          }
-        } catch (e: unknown) {
-          // 404 expected until Clair indexes the manifest; rethrow others
-          if (e instanceof Error && !e.message.includes('404')) throw e;
-        }
-        await new Promise((r) => setTimeout(r, 5000));
-      }
-
-      if (scanStatus === 'queued') {
-        throw new Error('Clair scan did not complete within the 120s deadline');
-      }
+      await expect
+        .poll(
+          async () => {
+            try {
+              const sec = await api.getManifestSecurity(
+                testRepo.namespace,
+                testRepo.name,
+                digest,
+              );
+              if (sec.status) scanStatus = sec.status;
+            } catch (e: unknown) {
+              // 404 expected until Clair indexes the manifest; rethrow others
+              if (e instanceof Error && !e.message.includes('404')) throw e;
+            }
+            return scanStatus;
+          },
+          {
+            message: 'Clair scan did not complete within the 120s deadline',
+            timeout: 120000,
+            intervals: [5000],
+          },
+        )
+        .not.toBe('queued');
     });
 
     test.afterAll(async ({userContext}) => {

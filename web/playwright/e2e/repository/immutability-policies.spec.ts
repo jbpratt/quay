@@ -214,9 +214,6 @@ test.describe(
           .getByPlaceholder('Filter logs')
           .fill('immutability');
 
-        // Give filter time to apply
-        await authenticatedPage.waitForTimeout(500);
-
         // Verify the create immutability policy log entry is visible
         await expect(
           authenticatedPage

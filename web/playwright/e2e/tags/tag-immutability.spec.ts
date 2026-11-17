@@ -1007,8 +1007,6 @@ test.describe(
       // Filter by "immutable" to find our log entry
       await authenticatedPage.getByPlaceholder('Filter logs').fill('immutable');
 
-      await authenticatedPage.waitForTimeout(500);
-
       // Find the row for our specific repo (repo.name is unique per test)
       const logRow = authenticatedPage
         .getByTestId('usage-logs-table')

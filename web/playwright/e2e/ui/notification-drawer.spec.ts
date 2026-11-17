@@ -39,9 +39,6 @@ test.describe('Notification Drawer', {tag: ['@ui', '@container']}, () => {
       users.user.password,
     );
 
-    // Brief wait for notification processing
-    await authenticatedPage.waitForTimeout(2000);
-
     // 4. Navigate and verify bell exists
     await authenticatedPage.goto('/organization');
     const bell = authenticatedPage.getByTestId('notification-bell');

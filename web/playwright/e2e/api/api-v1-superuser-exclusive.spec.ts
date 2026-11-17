@@ -44,18 +44,20 @@ interface TagListClient {
 async function waitForTags(
   client: TagListClient,
   tagUrl: string,
-  {retries = 10, delayMs = 500} = {},
 ): Promise<{tags: TagEntry[]}> {
-  for (let i = 0; i < retries; i++) {
-    const resp = await client.get(tagUrl);
-    expect(resp.status()).toBe(200);
-    const body = await resp.json();
-    if (body.tags && body.tags.length > 0) {
-      return body;
-    }
-    await new Promise((r) => setTimeout(r, delayMs));
-  }
-  throw new Error(`Tags not populated at ${tagUrl} after ${retries} retries`);
+  let body: {tags: TagEntry[]} = {tags: []};
+  await expect
+    .poll(
+      async () => {
+        const resp = await client.get(tagUrl);
+        expect(resp.status()).toBe(200);
+        body = await resp.json();
+        return body.tags?.length ?? 0;
+      },
+      {message: `Tags not populated at ${tagUrl}`, intervals: [500]},
+    )
+    .toBeGreaterThan(0);
+  return body;
 }
 
 // ---------------------------------------------------------------------------

@@ -275,18 +275,19 @@ test.describe(
         recreate: () => Promise<unknown>,
         exists: () => Promise<{status(): number}>,
       ) => {
-        const deadline = Date.now() + 150_000;
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          await recreate(); // no-op (400) while reserved; creates the shell once free
-          if ((await exists()).status() === 200) return;
-          if (Date.now() >= deadline) {
-            throw new Error(
-              `${label} was not reusable within the GC wait window`,
-            );
-          }
-          await new Promise((r) => setTimeout(r, 5_000));
-        }
+        await expect
+          .poll(
+            async () => {
+              await recreate(); // no-op (400) while reserved; creates the shell once free
+              return (await exists()).status();
+            },
+            {
+              message: `${label} was not reusable within the GC wait window`,
+              timeout: 150_000,
+              intervals: [5_000],
+            },
+          )
+          .toBe(200);
       };
 
       await blockUntilReusable(

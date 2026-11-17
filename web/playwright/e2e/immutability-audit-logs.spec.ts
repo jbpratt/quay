@@ -40,8 +40,6 @@ test.describe(
         .getByPlaceholder('Filter logs')
         .fill('set as immutable by policy');
 
-      await authenticatedPage.waitForTimeout(500);
-
       // Verify the retroactive batch log entry is visible
       await expect(
         authenticatedPage
@@ -83,8 +81,6 @@ test.describe(
       await authenticatedPage
         .getByPlaceholder('Filter logs')
         .fill('automatically set as immutable');
-
-      await authenticatedPage.waitForTimeout(500);
 
       // Verify the per-tag log entry is visible
       await expect(

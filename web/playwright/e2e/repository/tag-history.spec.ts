@@ -37,20 +37,27 @@ test.describe(
       );
 
       // Poll for the tag to be indexed (push is sync but indexing may lag)
-      let latestDigest: string | undefined;
-      for (let attempt = 0; attempt < 10; attempt++) {
-        const tags = await api.getTags(sharedRepo.namespace, sharedRepo.name, {
-          specificTag: 'latest',
-        });
-        if (tags.tags.length > 0) {
-          latestDigest = tags.tags[0].manifest_digest;
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-      if (!latestDigest) {
-        throw new Error('Pushed tag was not indexed after 10 attempts');
-      }
+      let latestDigest = '';
+      await expect
+        .poll(
+          async () => {
+            const tags = await api.getTags(
+              sharedRepo.namespace,
+              sharedRepo.name,
+              {
+                specificTag: 'latest',
+              },
+            );
+            latestDigest = tags.tags[0]?.manifest_digest ?? '';
+            return latestDigest;
+          },
+          {
+            message: 'Pushed tag was not indexed',
+            intervals: [1000],
+            timeout: 30_000,
+          },
+        )
+        .toBeTruthy();
 
       // Create additional tag 'histtag' pointing to same digest
       await api.createTag(
@@ -146,20 +153,23 @@ test.describe(
         const rawApi = api.raw;
 
         // Poll for the tag to be indexed (push is sync but indexing may lag)
-        let latestDigest: string | undefined;
-        for (let attempt = 0; attempt < 10; attempt++) {
-          const tags = await rawApi.getTags(repo.namespace, repo.name, {
-            specificTag: 'latest',
-          });
-          if (tags.tags.length > 0) {
-            latestDigest = tags.tags[0].manifest_digest;
-            break;
-          }
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-        if (!latestDigest) {
-          throw new Error('Pushed tag was not indexed after 10 attempts');
-        }
+        let latestDigest = '';
+        await expect
+          .poll(
+            async () => {
+              const tags = await rawApi.getTags(repo.namespace, repo.name, {
+                specificTag: 'latest',
+              });
+              latestDigest = tags.tags[0]?.manifest_digest ?? '';
+              return latestDigest;
+            },
+            {
+              message: 'Pushed tag was not indexed',
+              intervals: [1000],
+              timeout: 30_000,
+            },
+          )
+          .toBeTruthy();
 
         // Create and delete an early history entry, then flood in enough
         // newer tag events to push it past the raw API's page-1 cap.
@@ -229,20 +239,23 @@ test.describe(
 
         const rawApi = api.raw;
 
-        let latestDigest: string | undefined;
-        for (let attempt = 0; attempt < 10; attempt++) {
-          const tags = await rawApi.getTags(repo.namespace, repo.name, {
-            specificTag: 'latest',
-          });
-          if (tags.tags.length > 0) {
-            latestDigest = tags.tags[0].manifest_digest;
-            break;
-          }
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-        if (!latestDigest) {
-          throw new Error('Pushed tag was not indexed after 10 attempts');
-        }
+        let latestDigest = '';
+        await expect
+          .poll(
+            async () => {
+              const tags = await rawApi.getTags(repo.namespace, repo.name, {
+                specificTag: 'latest',
+              });
+              latestDigest = tags.tags[0]?.manifest_digest ?? '';
+              return latestDigest;
+            },
+            {
+              message: 'Pushed tag was not indexed',
+              intervals: [1000],
+              timeout: 30_000,
+            },
+          )
+          .toBeTruthy();
 
         // Newer tags that match 'release_1' only if '_' is a wildcard,
         // enough to fill the server's 50-row first page.

@@ -40,16 +40,19 @@ test.describe(
       // Wait for Clair to scan the image (poll until status != queued)
       const tags = await api.getTags(testRepo.namespace, testRepo.name);
       const digest = tags.tags[0].manifest_digest;
-      const deadline = Date.now() + 120000;
-      while (Date.now() < deadline) {
-        const sec = await api.getManifestSecurity(
-          testRepo.namespace,
-          testRepo.name,
-          digest,
-        );
-        if (sec.status !== 'queued') break;
-        await new Promise((r) => setTimeout(r, 5000));
-      }
+      await expect
+        .poll(
+          async () =>
+            (
+              await api.getManifestSecurity(
+                testRepo.namespace,
+                testRepo.name,
+                digest,
+              )
+            ).status,
+          {timeout: 120000, intervals: [5000]},
+        )
+        .not.toBe('queued');
     });
 
     test.afterAll(async ({userContext}) => {
@@ -290,6 +293,8 @@ test.describe(
       // Wait for Clair to scan the OCI image
       const tags = await api.getTags(testRepo.namespace, testRepo.name);
       const digest = tags.tags[0].manifest_digest;
+      // Fall through on timeout: without SECURITY_SCANNER the manifest stays
+      // 404 and the tests skip on their feature tag instead of failing here.
       const deadline = Date.now() + 120000;
       while (Date.now() < deadline) {
         try {
@@ -338,16 +343,19 @@ test.describe(
       const scanned = authenticatedPage.getByText(
         /detected \d+ vulnerabilit|detected no vulnerabilit/,
       );
-      const deadline = Date.now() + 90000;
-      while (Date.now() < deadline) {
-        if (await scanned.isVisible().catch(() => false)) break;
-        await authenticatedPage.waitForTimeout(5000);
-        await authenticatedPage.reload();
-        await authenticatedPage
-          .getByRole('tab', {name: 'Security Report'})
-          .click();
-      }
-      await expect(scanned).toBeVisible({timeout: 5000});
+      await expect
+        .poll(
+          async () => {
+            if (await scanned.isVisible().catch(() => false)) return true;
+            await authenticatedPage.reload();
+            await authenticatedPage
+              .getByRole('tab', {name: 'Security Report'})
+              .click();
+            return false;
+          },
+          {timeout: 90000, intervals: [5000]},
+        )
+        .toBe(true);
 
       await expect(
         authenticatedPage.locator('[data-testid="vulnerability-chart"]'),
@@ -365,13 +373,16 @@ test.describe(
       const packages = authenticatedPage.getByText(
         /recognized \d+ package|does not recognize any package/,
       );
-      const deadline = Date.now() + 90000;
-      while (Date.now() < deadline) {
-        if (await packages.isVisible().catch(() => false)) break;
-        await authenticatedPage.waitForTimeout(5000);
-        await authenticatedPage.reload();
-      }
-      await expect(packages).toBeVisible({timeout: 5000});
+      await expect
+        .poll(
+          async () => {
+            if (await packages.isVisible().catch(() => false)) return true;
+            await authenticatedPage.reload();
+            return false;
+          },
+          {timeout: 90000, intervals: [5000]},
+        )
+        .toBe(true);
 
       await expect(
         authenticatedPage.locator('[data-testid="packages-chart"]'),

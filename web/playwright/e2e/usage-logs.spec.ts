@@ -191,9 +191,6 @@ test.describe('Usage Logs', {tag: ['@logs']}, () => {
     // Filter by "created" to match the "Organization xxx created" log entry
     await authenticatedPage.getByPlaceholder('Filter logs').fill('created');
 
-    // Give filter time to apply
-    await authenticatedPage.waitForTimeout(500);
-
     // Verify filtered results show the organization created log
     await expect(
       authenticatedPage.getByTestId('usage-logs-table').getByText(/created/),
@@ -736,7 +733,6 @@ test.describe(
 
         // Filter to find our specific log entry
         await superuserPage.getByPlaceholder('Filter logs').fill(repoName);
-        await superuserPage.waitForTimeout(500);
 
         // Scope to td cells with exact text to avoid matching Description column.
         // Escape regex metacharacters in case generated names contain them.
@@ -771,7 +767,6 @@ test.describe(
 
       // Filter to find the create_repo log entry
       await authenticatedPage.getByPlaceholder('Filter logs').fill(repoName);
-      await authenticatedPage.waitForTimeout(500);
 
       // Scope to td cells with exact text. Use .first() to avoid strict mode
       // violation if multiple log rows exist for the same repo.
