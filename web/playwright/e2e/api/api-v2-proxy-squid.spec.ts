@@ -16,6 +16,8 @@ const SQUID_E2E = process.env.PLAYWRIGHT_SQUID_E2E === '1';
 // Host port that docker-compose.proxy-squid.yaml publishes for seeding.
 const UPSTREAM_SEED_URL = 'http://localhost:5001';
 const DENIED_BLOB_BOUND_MS = 15_000;
+// Over four of blobstream's 256 KiB read chunks, so the body spans several.
+const LAYER_SIZE = 1_048_577;
 
 const OCI_MANIFEST = 'application/vnd.oci.image.manifest.v1+json';
 
@@ -49,7 +51,7 @@ async function seedUpstreamImage(
   request: APIRequestContext,
   repo: string,
 ): Promise<{layer: Buffer; layerDigest: string}> {
-  const layer = randomBytes(4096);
+  const layer = randomBytes(LAYER_SIZE);
   const layerDigest = await pushBlob(request, repo, layer);
   const config = Buffer.from(
     JSON.stringify({
@@ -111,7 +113,7 @@ test.describe(
       async function upstreamProxyLocation(
         upstream: string,
         repo: string,
-      ): Promise<{url: string; layerDigest: string}> {
+      ): Promise<{url: string; layer: Buffer; layerDigest: string}> {
         const seeded = await seedUpstreamImage(request, repo);
         const org = await api.organization('squidproxy');
         await api.raw.createProxyCacheConfig(org.name, {
@@ -143,6 +145,7 @@ test.describe(
         expect(location).toContain('/_upstream_proxy/');
         return {
           url: new URL(location, API_URL).toString(),
+          layer: seeded.layer,
           layerDigest: seeded.layerDigest,
         };
       }
@@ -155,6 +158,16 @@ test.describe(
       const goodBlob = await request.get(good.url, {maxRedirects: 0});
       expect(goodBlob.status()).toBe(200);
       expect(digestOf(await goodBlob.body())).toBe(good.layerDigest);
+
+      const rangeBlob = await request.get(good.url, {
+        headers: {range: 'bytes=1000-1999'},
+        maxRedirects: 0,
+      });
+      expect(rangeBlob.status()).toBe(206);
+      expect(rangeBlob.headers()['content-range']).toBe(
+        `bytes 1000-1999/${LAYER_SIZE}`,
+      );
+      expect(await rangeBlob.body()).toEqual(good.layer.subarray(1000, 2000));
 
       // Squid refuses registry-denied blobs; Quay must answer, not hang.
       const denied = await upstreamProxyLocation(

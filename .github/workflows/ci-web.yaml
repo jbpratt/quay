@@ -373,6 +373,10 @@ jobs:
           log=$(docker exec quay-squid cat /var/log/squid/access.log)
           echo "$log"
           [ "$rc" -eq 0 ] || exit "$rc"
+          if ! grep -qE '/200 [0-9]+ GET http://registry-upstream:5000/v2/squid/good-[^/ ]+/manifests/' <<<"$log"; then
+            echo "::error::No proxied manifest GET to registry-upstream in Squid's access log"
+            exit 1
+          fi
           if ! grep -qE '/200 [0-9]+ GET http://registry-upstream:5000/v2/[^ ]+/blobs/sha256:' <<<"$log"; then
             echo "::error::No proxied blob GET to registry-upstream in Squid's access log"
             exit 1
