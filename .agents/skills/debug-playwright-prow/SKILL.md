@@ -151,6 +151,9 @@ show), and the failure classification list
 (selector change, backend error, timing/race, auth/config, test isolation,
 infra) — is in
 [references/root-cause-analysis.md](references/root-cause-analysis.md).
+A server request of 10 s or more inside a failed test's window gets that
+slow-request timeline, and the report names its gaps; low DB-span coverage
+alone is not a finding.
 
 ## Step 4: Offer Fixes
 

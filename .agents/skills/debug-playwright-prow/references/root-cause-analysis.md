@@ -132,15 +132,20 @@ the timeline starts from the request's span id, not the first server span:
 TRACE_ID=...   # from the lookup above
 ROOT_SPAN=...  # its span_id
 GAP_S=1
+# Lock bounds from data/model/storage.py: 3 s bounded BLOB_DELETE acquire, 30 s writer and 120 s GC lock_ttl.
+LOCK_S='[3, 30, 120]' LOCK_TOL_S=5
 jq -r '.jaeger_trace_files[]' <<<"$PW_JSON" | while IFS= read -r f; do
   jq -c --arg t "$TRACE_ID" '.data[]? | select(.traceID == $t) | .spans[]' \
     "$ARTIFACTS_DIR/jaeger-traces/$f"
-done | jq -rs --argjson gap "$GAP_S" --arg rid "$ROOT_SPAN" '
+done | jq -rs --argjson gap "$GAP_S" --argjson locks "$LOCK_S" --argjson tol "$LOCK_TOL_S" \
+  --arg rid "$ROOT_SPAN" '
   def tag($k): first(.tags[]? | select(.key == $k) | .value) // null;
   def spanname: .operationName + (
     (tag("db.statement") // "" | capture("(?i)\\b(from|into|update)\\s+\"?(?<t>\\w+)").t // null)
     | if . then " " + . else "" end);
   def r3: . * 1000 | round / 1000;
+  def locktag: . as $g | first($locks[] | select($g >= ([. - $tol, . * 0.8] | max) and $g <= . + 1)) as $b
+    | "  (\($g | r3) s, near \($b) s lock bound: lock-contention candidate)";
   unique_by(.spanID) as $all
   | (first($all[] | select(.spanID == $rid)) // error("span \($rid) not in trace")) as $root
   | {ids: {($root.spanID): true}, n: 0}
@@ -154,10 +159,10 @@ done | jq -rs --argjson gap "$GAP_S" --arg rid "$ROOT_SPAN" '
     ( foreach ($kids[], {end: true}) as $k ({prev: 0};
         if $k.end then
           ($root.duration / 1e6) as $e
-          | .line = (if $e - .prev > $gap then "  GAP  \(.prev | r3) -> \($e | r3) s (end of request)" else empty end)
+          | .line = (if $e - .prev > $gap then "  GAP  \(.prev | r3) -> \($e | r3) s (end of request)" + ($e - .prev | locktag // "") else empty end)
         else
           (($k.startTime - $root.startTime) / 1e6) as $s
-          | .line = ((if $s - .prev > $gap then "  GAP  \(.prev | r3) -> \($s | r3) s\n" else "" end)
+          | .line = ((if $s - .prev > $gap then "  GAP  \(.prev | r3) -> \($s | r3) s" + ($s - .prev | locktag // "") + "\n" else "" end)
               + "  \($s | r3)  \($k.duration / 1000)  \($k | spanname)")
           | .prev = ([.prev, $s + $k.duration / 1e6] | max)
         end;
@@ -165,17 +170,32 @@ done | jq -rs --argjson gap "$GAP_S" --arg rid "$ROOT_SPAN" '
 ```
 
 Each chunk is read on its own, so memory stays bounded by the largest chunk.
-A `GAP` line is time the request spent outside every instrumented call.
+A `GAP` line is time the request spent outside every instrumented call. One
+that lies in `[max(bound - LOCK_TOL_S, bound * 0.8), bound + 1]` for a bound in
+`LOCK_S` is tagged a lock-contention candidate: a contended wait ends at or
+just before the holder's TTL expires.
 
 What the spans cannot show: only Flask (the server span) and psycopg2 (the
 SQL child spans) are instrumented. Redis, lock acquisition and storage I/O
 emit no spans, so a gap is unexplained time, not proof of any one cause.
-Lock contention can only be inferred from a gap's position and length (for
-example a gap close to a lock's TTL between two lookups of the same row).
+When a slow registry request (blob upload finalize, manifest PUT) has a tagged
+gap, the report names the gap with its offsets and length and calls it "lock
+contention likely (inferred from a silent gap of N s that fits the M s lock
+bound)", never observed. The known stall is the BLOB_DELETE lock,
+PROJQUAY-13371 / quay/quay#7389 (bounded the acquire to 3 s and dropped the
+re-acquire). Check whether the run's source sha has the fix:
+`git merge-base --is-ancestor <fix sha> <sha>`, or
+`git log --oneline <sha> --grep=PROJQUAY-13371 --grep='bound BLOB_DELETE lock wait'`
+(the 3.18 and 3.17 backports are PROJQUAY-13385 and PROJQUAY-13396).
+Search the sha's history, not the branch tip: a branch can gain the fix after
+the run. Read the lock bounds at that sha rather than
+trusting the defaults above:
+`git grep -n 'lock_ttl=\|LOCK_ACQUIRE_TIMEOUT' <sha> -- data/model/storage.py`.
+
 The direct evidence is the Quay pod log, on code that logs lock timeouts:
 
 ```bash
-grep -n "Timed out acquiring blob lock\|GC worker holds BLOB_DELETE_\|Could not acquire lock for blob" \
+grep -n "Timed out acquiring blob lock\|GC worker holds BLOB_DELETE_\|Could not acquire lock for blob\|Could not connect to Redis for lock BLOB_DELETE" \
   "$ARTIFACTS_DIR/container-logs/quay.log"
 ```
 
