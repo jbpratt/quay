@@ -135,6 +135,12 @@
       "matchManagers": ["rpm-lockfile"],
       "schedule": ["* 2-8 * * 6"],
       "automerge": true
+    },
+    {
+      "description": "Pause routine legacy UI and integration_tests npm updates; vulnerability alerts still apply to root package.json and exact pins (integration_tests has no lockfile, so its ranged deps get no alert PRs)",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["package.json", "package-lock.json", "integration_tests/package.json"],
+      "enabled": false
     }
   ],
   "semanticCommits": "disabled",
