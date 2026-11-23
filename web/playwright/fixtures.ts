@@ -1138,9 +1138,9 @@ async function setReactUICookie(context: BrowserContext): Promise<void> {
 // Quay's FRESH_LOGIN_TIMEOUT = "10m" (config.py), hardcoded here since it is
 // not exposed by the /config endpoint.
 const FRESH_LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
-// Tracks the last time superuserPage refreshed each worker's superuserContext,
-// so the refresh below only re-signs-in once the session is old enough to
-// risk falling outside FRESH_LOGIN_TIMEOUT_MS.
+// Tracks the last sign-in of each worker's superuserContext and
+// readonlyContext, so their page fixtures only re-sign-in once the session is
+// old enough to risk falling outside FRESH_LOGIN_TIMEOUT_MS.
 const SUPERUSER_PAGE_REFRESH_INTERVAL_MS = FRESH_LOGIN_TIMEOUT_MS / 2;
 const superuserPageLastLogin = new WeakMap<BrowserContext, number>();
 
@@ -1375,6 +1375,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         users.readonly.password,
         cachedQuayConfig,
       );
+      superuserPageLastLogin.set(context, Date.now());
       await use(context);
       await context.close();
     },
@@ -1486,7 +1487,26 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await page.close();
   },
 
-  readonlyPage: async ({readonlyContext, traceparent}, use) => {
+  readonlyPage: async (
+    {readonlyContext, cachedQuayConfig, traceparent},
+    use,
+  ) => {
+    // Same fresh-login refresh as superuserPage; see its comment.
+    const isOIDC = cachedQuayConfig?.config?.AUTHENTICATION_TYPE === 'OIDC';
+    const lastLogin = superuserPageLastLogin.get(readonlyContext) ?? 0;
+    if (
+      !isOIDC &&
+      Date.now() - lastLogin > SUPERUSER_PAGE_REFRESH_INTERVAL_MS
+    ) {
+      const users = getTestUsers(cachedQuayConfig);
+      await loginUser(
+        readonlyContext,
+        users.readonly.username,
+        users.readonly.password,
+        cachedQuayConfig,
+      );
+      superuserPageLastLogin.set(readonlyContext, Date.now());
+    }
     const page = await readonlyContext.newPage();
     await page.setExtraHTTPHeaders({traceparent: traceparent.traceparent});
     await use(page);
