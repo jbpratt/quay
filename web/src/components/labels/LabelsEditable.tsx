@@ -22,6 +22,7 @@ export default function EditableLabels(props: EditableLabelsProps) {
     setLabels,
     initialLabels,
     loading,
+    isFetchedAfterMount,
     error,
     createLabels,
     successCreatingLabels,
@@ -127,7 +128,9 @@ export default function EditableLabels(props: EditableLabelsProps) {
   if (error) {
     return <>Unable to get labels</>;
   }
-  if (loading) {
+  // Until this mount's fetch lands, labels are placeholder or cached data, and
+  // the fetch's onSuccess would overwrite any edit made over them.
+  if (loading || !isFetchedAfterMount) {
     return <Skeleton width="100%" />;
   }
 

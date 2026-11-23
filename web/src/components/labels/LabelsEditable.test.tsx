@@ -14,6 +14,7 @@ function defaultHookReturn(overrides = {}) {
     setLabels: vi.fn(),
     initialLabels: [],
     loading: false,
+    isFetchedAfterMount: true,
     error: false,
     createLabels: vi.fn(),
     successCreatingLabels: false,
@@ -50,6 +51,34 @@ describe('EditableLabels', () => {
     mockUseLabels.mockReturnValue(defaultHookReturn({loading: true}));
     const {container} = render(<EditableLabels {...makeProps()} />);
     expect(container.querySelector('.pf-v6-c-skeleton')).toBeInTheDocument();
+  });
+
+  it('renders skeleton instead of the editor until labels are fetched', () => {
+    mockUseLabels.mockReturnValue(
+      defaultHookReturn({isFetchedAfterMount: false}),
+    );
+    const {container, rerender} = render(<EditableLabels {...makeProps()} />);
+    expect(container.querySelector('.pf-v6-c-skeleton')).toBeInTheDocument();
+    expect(screen.queryByText('Mutable labels')).not.toBeInTheDocument();
+
+    mockUseLabels.mockReturnValue(
+      defaultHookReturn({
+        labels: [
+          {
+            id: 'k=v',
+            key: 'k',
+            value: 'v',
+            source_type: 'api',
+            media_type: null,
+          },
+        ],
+      }),
+    );
+    rerender(<EditableLabels {...makeProps()} />);
+    expect(
+      container.querySelector('.pf-v6-c-skeleton'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/k=v/)).toBeInTheDocument();
   });
 
   it('renders error message when error is true', () => {

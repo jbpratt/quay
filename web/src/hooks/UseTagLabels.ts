@@ -25,6 +25,7 @@ export function useLabels(
     data: initialLabels,
     isLoading: loading,
     isError: error,
+    isFetchedAfterMount,
   } = useQuery(
     ['namespace', org, 'repo', repo, 'digest', digest, 'labels'],
     ({signal}) => getLabels(org, repo, digest, signal),
@@ -75,6 +76,7 @@ export function useLabels(
     setLabels: setLabels,
     initialLabels: initialLabels,
     loading: loading,
+    isFetchedAfterMount: isFetchedAfterMount,
     error: error,
     createLabels: bulkCreateLabelsMutator,
     successCreatingLabels: successCreateLabels,

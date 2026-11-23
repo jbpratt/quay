@@ -1,9 +1,10 @@
 import {renderHook, act, waitFor} from '@testing-library/react';
 import React from 'react';
-import {QueryClientProvider} from '@tanstack/react-query';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {createTestQueryClient} from 'src/test-utils';
 import {useLabels} from './UseTagLabels';
 import {
+  Label,
   getLabels,
   bulkCreateLabels,
   bulkDeleteLabels,
@@ -46,6 +47,51 @@ describe('useLabels', () => {
       {wrapper},
     );
     await waitFor(() => expect(result.current.labels).toEqual(mockLabels));
+  });
+
+  it('reports labels unfetched until this mount fetches them', async () => {
+    // A client that keeps the first mount's data cached, as the app's does.
+    const queryClient = new QueryClient({
+      defaultOptions: {queries: {retry: false}},
+    });
+    const cachedWrapper = ({children}: {children: React.ReactNode}) =>
+      React.createElement(QueryClientProvider, {client: queryClient}, children);
+    const pendingLabels = () => {
+      let resolve: (labels: Label[]) => void;
+      vi.mocked(getLabels).mockReturnValueOnce(
+        new Promise<Label[]>((r) => {
+          resolve = r;
+        }),
+      );
+      return (labels: Label[]) => resolve(labels);
+    };
+    const cached = [
+      {id: 'k=v', key: 'k', value: 'v', source_type: 'api', media_type: null},
+    ];
+
+    const resolveFirst = pendingLabels();
+    const first = renderHook(() => useLabels('myorg', 'myrepo', 'sha256:abc'), {
+      wrapper: cachedWrapper,
+    });
+    expect(first.result.current.loading).toBe(false);
+    expect(first.result.current.isFetchedAfterMount).toBe(false);
+    act(() => resolveFirst(cached));
+    await waitFor(() =>
+      expect(first.result.current.isFetchedAfterMount).toBe(true),
+    );
+    first.unmount();
+
+    const resolveReopen = pendingLabels();
+    const reopen = renderHook(
+      () => useLabels('myorg', 'myrepo', 'sha256:abc'),
+      {wrapper: cachedWrapper},
+    );
+    expect(reopen.result.current.initialLabels).toEqual(cached);
+    expect(reopen.result.current.isFetchedAfterMount).toBe(false);
+    act(() => resolveReopen(cached));
+    await waitFor(() =>
+      expect(reopen.result.current.isFetchedAfterMount).toBe(true),
+    );
   });
 
   it('calls bulkCreateLabels on createLabels mutate', async () => {

@@ -664,6 +664,56 @@ test.describe(
       ).toBeVisible();
     });
 
+    test('keeps a label added before the labels fetch resolves', async ({
+      authenticatedPage,
+      api,
+    }) => {
+      const repo = await api.repository();
+      await pushImage(
+        repo.namespace,
+        repo.name,
+        'v1',
+        user.username,
+        user.password,
+      );
+
+      await authenticatedPage.route('**/labels', async (route) => {
+        if (route.request().method() === 'GET') {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+        await route.continue();
+      });
+
+      await authenticatedPage.goto(`/repository/${repo.fullName}?tab=tags`);
+      await expect(
+        authenticatedPage.getByRole('link', {name: 'v1'}),
+      ).toBeVisible();
+
+      const tagRow = authenticatedPage.getByTestId('table-entry').filter({
+        has: authenticatedPage.getByRole('link', {name: 'v1'}),
+      });
+
+      const labelsResponse = authenticatedPage.waitForResponse(
+        (resp) =>
+          resp.url().includes('/labels') && resp.request().method() === 'GET',
+      );
+      await tagRow.getByRole('button', {name: 'Tag actions kebab'}).click();
+      await authenticatedPage.getByText('Edit labels').click();
+      await authenticatedPage.getByText('Add new label').click();
+      await authenticatedPage
+        .locator('input[placeholder="key=value"]')
+        .fill('foo=bar');
+      await authenticatedPage.getByText('Mutable labels').click();
+      await labelsResponse;
+
+      await expect(
+        authenticatedPage.locator('#mutable-labels .label-content'),
+      ).toContainText('foo=bar');
+      await expect(
+        authenticatedPage.getByRole('button', {name: 'Save Labels'}),
+      ).toBeEnabled();
+    });
+
     // --- Search and filter tests against shared repo ---
 
     test('search and filter tags by name, regex, and digest', async ({
