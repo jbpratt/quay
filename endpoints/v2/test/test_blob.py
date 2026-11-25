@@ -807,3 +807,60 @@ def test_blob_upload_when_pushes_disabled(client, app):
 
     # re-enable pushes, since the setting persists across all tests
     realapp.config["DISABLE_PUSHES"] = False
+
+
+@pytest.mark.parametrize(
+    "resource, method",
+    [
+        ("v2.upload_chunk", "PATCH"),
+        ("v2.monolithic_upload_or_last_chunk", "PUT"),
+        ("v2.start_blob_upload", "POST"),
+    ],
+)
+def test_blob_upload_row_missing_on_update(resource, method, client, app):
+    user = model.user.get_user("devtable")
+    access = [
+        {
+            "type": "repository",
+            "name": "devtable/simple",
+            "actions": ["pull", "push"],
+        }
+    ]
+
+    context, subject = build_context_and_subject(ValidatedAuthContext(user=user))
+    token = generate_bearer_token(
+        realapp.config["SERVER_HOSTNAME"], subject, context, access, 600, instance_keys
+    )
+    headers = {"Authorization": "Bearer %s" % token}
+    body = b"some blob contents"
+    params = {"repository": "devtable/simple"}
+
+    if resource != "v2.start_blob_upload":
+        response = conduct_call(
+            client,
+            "v2.start_blob_upload",
+            url_for,
+            "POST",
+            params,
+            expected_code=202,
+            headers=headers,
+        )
+        params["upload_uuid"] = response.headers["Docker-Upload-UUID"]
+
+    if method != "PATCH":
+        params["digest"] = "sha256:" + hashlib.sha256(body).hexdigest()
+
+    # Simulate the upload row being deleted by another request mid-upload.
+    with patch.object(registry_model, "update_blob_upload", return_value=None):
+        response = conduct_call(
+            client,
+            resource,
+            url_for,
+            method,
+            params,
+            expected_code=400,
+            headers=headers,
+            raw_body=body,
+        )
+
+    assert response.json["errors"][0]["code"] == "BLOB_UPLOAD_INVALID"

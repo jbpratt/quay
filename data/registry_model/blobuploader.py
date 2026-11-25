@@ -153,6 +153,8 @@ class _BlobUploadManager(object):
 
         self.repository_ref = repository_ref
         self.blob_upload = blob_upload
+        # upload_chunk sets blob_upload to None if the row is gone; keep the ID for logging.
+        self._upload_id = blob_upload.upload_id
         self.settings = settings
         self.storage = storage
         self.extra_blob_stream_handlers = extra_blob_stream_handlers
@@ -163,7 +165,7 @@ class _BlobUploadManager(object):
         """
         Returns the unique ID for the blob upload.
         """
-        return self.blob_upload.upload_id
+        return self._upload_id
 
     def upload_chunk(self, app_config, input_fp, start_offset=0, length=-1):
         """
